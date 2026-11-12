@@ -66,6 +66,7 @@ jobs:
   attested-receipt:
     needs: test
     if: >-
+      github.repository == 'michaeljwilliams0123/Ultron.MW' &&
       needs.test.result == 'success' &&
       (github.event_name == 'push' ||
        (github.event_name == 'pull_request' &&
