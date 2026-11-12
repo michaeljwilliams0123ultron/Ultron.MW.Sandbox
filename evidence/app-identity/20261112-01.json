@@ -1,0 +1,13 @@
+{
+  "schema": "ultron.sandbox.github-app-canary.v1",
+  "repo": "michaeljwilliams0123ultron/Ultron.MW.Sandbox",
+  "repositoryId": 1454829851,
+  "appId": 5722581,
+  "appDeveloper": "michaeljwilliams0123ultron",
+  "installationId": 181111384,
+  "sourceMainSha": "006fc4604a17f73d33ee3b0087d13beb53249884",
+  "branch": "canary/app-identity-20261112-01",
+  "operation": "scoped-installation-token-content-write",
+  "paidInferenceUsed": false,
+  "productionMutation": false
+}
