@@ -2,6 +2,13 @@ import {createHash} from 'node:crypto';
 import {mkdir, writeFile} from 'node:fs/promises';
 
 export const SANDBOX = 'michaeljwilliams0123ultron/Ultron.MW.Sandbox';
+export function parseRunnerArgs(args) {
+  if (!Array.isArray(args)||args.length>1||args.some(arg=>arg!=='--replay')) {
+    throw new Error('unknown runner argument');
+  }
+  return {replay:args.length===1};
+}
+
 export function validateRunPlan({repository,runId,sourceSha}) {
   if (repository !== SANDBOX) throw new Error('sandbox only: production writes refused');
   if (!/^[0-9]{1,19}$/.test(String(runId))) throw new Error('invalid run identifier');
@@ -99,8 +106,7 @@ async function runLive() {
   });
   const token=process.env.GITHUB_TOKEN;
   if(!token)throw new Error('GitHub token unavailable; no mutation performed');
-  const replay=process.argv.includes('--replay');
-  if(process.argv.some(a=>a!=='--replay'))throw new Error('unknown runner argument');
+  const {replay}=parseRunnerArgs(process.argv.slice(2));
   const expected=JSON.stringify({
     schema:'ultron.live.autonomy.sandbox.v1',
     scope:SANDBOX,
