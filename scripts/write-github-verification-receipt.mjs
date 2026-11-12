@@ -5,8 +5,10 @@ import { pathToFileURL } from 'node:url';
 
 // The repository currently resolves canonically to the primary human owner's account.\n// The former organization alias is historical and may not authorize an attestation.
 const REPOSITORY = 'michaeljwilliams0123/Ultron.MW';
+// Separate development trust domain; never substitute it for a primary-owner receipt.
+const SANDBOX_REPOSITORY = 'michaeljwilliams0123ultron/Ultron.MW.Sandbox';
+const SANDBOX_ID = 1454829851;
 const WORKFLOW = 'Ultron core verification';
-const WORKFLOW_PATH = `${REPOSITORY}/.github/workflows/verify.yml@`;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 
 function required(env, name) {
@@ -27,8 +29,13 @@ function positiveInteger(env, name) {
 
 export function buildGitHubVerificationReceipt({ env = process.env, observedSha }) {
   if (required(env, 'GITHUB_ACTIONS') !== 'true') throw new Error('GitHub Actions is required');
-  if (required(env, 'GITHUB_REPOSITORY') !== REPOSITORY) {
+  const repository = required(env, 'GITHUB_REPOSITORY');
+  const sandbox = repository === SANDBOX_REPOSITORY;
+  if (repository !== REPOSITORY && !sandbox) {
     throw new Error('unexpected GitHub repository');
+  }
+  if (sandbox && positiveInteger(env, 'GITHUB_REPOSITORY_ID') !== SANDBOX_ID) {
+    throw new Error('unexpected Sandbox repository ID');
   }
 
   const event = required(env, 'GITHUB_EVENT_NAME');
@@ -39,8 +46,9 @@ export function buildGitHubVerificationReceipt({ env = process.env, observedSha 
     throw new Error('unexpected GitHub workflow');
   }
   const workflowRef = required(env, 'GITHUB_WORKFLOW_REF');
-  const scopedRef = workflowRef.startsWith(WORKFLOW_PATH)
-    ? workflowRef.slice(WORKFLOW_PATH.length) : '';
+  const workflowPath = `${repository}/.github/workflows/verify.yml@`;
+  const scopedRef = workflowRef.startsWith(workflowPath)
+    ? workflowRef.slice(workflowPath.length) : '';
   // A prefix check alone accepts arbitrary ref strings and incorrect branch
   // provenance; pin the ref format to the triggering GitHub event.
   if (!(event === 'push' && scopedRef === 'refs/heads/main') &&
@@ -61,7 +69,7 @@ export function buildGitHubVerificationReceipt({ env = process.env, observedSha 
     schemaVersion: 1,
     kind: 'github-attested-verification-receipt',
     result: 'passed',
-    repository: REPOSITORY,
+    repository,
     sourceSha,
     observedCheckoutSha: observedSha,
     event,
@@ -69,7 +77,8 @@ export function buildGitHubVerificationReceipt({ env = process.env, observedSha 
     workflowRef,
     workflowRunId,
     workflowRunAttempt: positiveInteger(env, 'GITHUB_RUN_ATTEMPT'),
-    workflowRunUrl: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+    workflowRunUrl: `https://github.com/${repository}/actions/runs/${workflowRunId}`,
+    ...(sandbox ? { trustDomain: 'sandbox-only-nonproduction' } : {}),
     job: 'attested-receipt',
     verification: 'node scripts/verify.mjs',
     paidSpendAuthorizedUsd: 0,
