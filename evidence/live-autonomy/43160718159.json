@@ -1,0 +1,8 @@
+{
+  "schema": "ultron.live.autonomy.sandbox.v1",
+  "scope": "michaeljwilliams0123ultron/Ultron.MW.Sandbox",
+  "source_sha": "8bb8363aafbb135678b3abf4591cc5c099aeadf4",
+  "run_id": "43160718159",
+  "objective": "bounded GitHub evidence mutation and dynamic reconciliation",
+  "zero_paid_cents": true
+}
