@@ -1,0 +1,44 @@
+name: Sandbox live mutation and autonomy acceptance
+run-name: Sandbox dynamic mutation + replay ${{ github.run_id }}
+on:
+  push:
+    branches:
+      - 'canary/live-autonomy-*'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: sandbox-live-autonomy-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  live-autonomy:
+    if: github.repository == 'michaeljwilliams0123ultron/Ultron.MW.Sandbox'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact sandbox source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Prove scope, mutation, and recovery behavior first
+        run: node --test test/sandbox-live-autonomy.test.mjs
+      - name: Live sandbox GitHub write and response-loss reconciliation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/sandbox-live-autonomy.mjs
+      - name: Prove exact-run replay is a no-op
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/sandbox-live-autonomy.mjs --replay
+      - name: Upload live write and replay evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sandbox-live-autonomy-${{ github.run_id }}
+          path: artifacts/sandbox-live-autonomy-*.json
+          if-no-files-found: warn
+          retention-days: 7
