@@ -1,0 +1,425 @@
+# Ultron.MW — Hatchable cloud brain (v2 design, deployment v3)
+
+## Sole-owner grant signing and release authority
+
+Only `michaeljwilliams0123` is required to approve a release or sign a
+delegated capability grant. Neither a second human reviewer nor a separately
+administered Vault/HSM co-signer is required. GitHub's live `main` protection
+currently requires zero PR reviews and no signed commits, while preserving
+the required CI status check. GitHub's automated checks are evidence, not
+another person's authorization.
+
+The owner may generate and use a self-controlled P-256 signing key with
+`scripts/owner-grant.mjs`; see `docs/OWNER-SOLE-AUTHORITY.md`. The signing
+private key must remain outside the repository and deployment runtime.
+Hatchable receives only the owner-approved public JWK. A signed grant still
+binds exact operation, actor, objective, resource, profile/stop versions,
+policy digest, expiration and a unique grant ID. No worker may issue its own
+grant or bypass authorization, provider readback, replay prevention, pause,
+revocation or the $0 paid-spend ceiling.
+
+**Production release is not implied by this source change.** The verifier's
+owner-controlled public key must be configured by the owner and tested with
+an authenticated end-to-end canary after the migration ledger is reconciled.
+The old requirement for an externally administered independent signer is
+retired; security evaluation remains automated evidence and not a co-signer.
+Never place the private key in GitHub, Hatchable, artifacts, workflow inputs
+or event payloads.
+
+Production migration reconciliation is also incomplete. The live Hatchable
+ledger was observed through `0028`; `0029` and `0030` tables were absent, while
+`0031`'s provider table was applied directly without a corresponding ledger
+entry. Do not fabricate ledger entries or blindly deploy all three migrations:
+`0029` changes the operations constraint and `0031` already has partial
+effects. Reconcile the schema and ledger through a reviewed, tested migration
+procedure first. Existing production handlers remain unchanged. Rollback of a
+future deployment must restore the prior runtime version without dropping or
+rewriting ledger data, and must be tested before deployment.
+On November 6, 2026, a read-only query observed 15 allowed operations and no
+provider write rows; those values can change. A local PGlite regression runs
+the actual migration files against a representative partial `0031` schema:
+it verifies that the full `0029`–`0031` sequence accepts an existing
+18-operation profile, preserves the pre-existing provider write, creates the
+two missing ledgers and retains the mutation ledger's immutability guard. This
+is not a production rehearsal, a current preflight, or evidence that Hatchable
+executes multiple migrations in a single transaction.
+
+**Cloud action extension (November 3, 2026):** `cloud.note.create` is a bounded Hatchable native write outside GitHub. The admin route also checks the authenticated owner handle, versioned Build/Release operation membership, current stop version, pause state and $0 paid ceiling. One PostgreSQL statement creates a keyed note and event receipt; replay reads the original without another write. An uncertain response is reconciled by the same key. This is not a generic HTTP executor or proof of a Destiny/Codex handoff.
+
+Source snapshot of the **deployed private owner-only** `ultron-mw-cloud` Hatchable backend. This is a source-review PR, not a GitHub Pages/UI replacement.
+
+**Current release evidence (October 24, 2026):** Hatchable deployment v3 is
+live and all 15 runtime files match PR source commit
+`9fd3e3e9c2b8321c385b6775d15ad439888e8a68` by SHA-256 and size.
+GitHub Verify passed for that commit. The owner-only admission, duplicate-key
+suppression, public/member denial, scheduler-only edge denial, completed
+read-only task with matching receipts, and expired-lease recovery were checked
+against v3. The source-only holds described below are historical checkpoints.
+Post-commit database response loss remains covered by the local mock-driver
+test, not a live fault injection. No GitHub write authority, OpenAI key, or
+independent Destiny account proof is implied by this deployment.
+
+- Management: https://hatchable.com/console/projects/ultron-mw-cloud
+- GitHub Pages remains the sole primary interface: https://michaeljwilliams0123.github.io/Ultron.MW/
+- Live isolated backend: https://ultron-mw-cloud.hatchable.site (personal/private)
+- Native MCP endpoint: https://ultron-mw-cloud.hatchable.site/mcp (requires independent OAuth client authorization)
+
+## Cloud landing and Descope identity UI (October 24)
+
+`public/index.html` now serves a real root page instead of a static 404. It links
+back to GitHub Pages as Ultron's canonical interface and to Hatchable Setup.
+An embedded, pinned Descope web component uses the **existing** project's
+`sign-in` flow for optional identity authentication. The connected Descope
+project ID is public client metadata, never a management credential.
+
+**Authority boundary:** This browser-only sign-in does not authorize any
+Hatchable backend route, replace Hatchable's personal-project access control,
+or configure missing Mahoraga GitHub App credentials. The admin and scheduler
+API routes remain server-side restricted. A future API route can accept Descope
+tokens only after proper server-side session signature, audience, expiry,
+and owner identity validation has been independently tested. The existing flow
+must also be checked for allowed domains and owner-only enrollment in Descope.
+
+## Implemented tools
+
+Five bounded native objectives: `repo.inspect`, `repo.prs`, `repo.ci`, `site.render` (managed browser), and `council.review` (deterministic advisory; **not an LLM**). They run in a persistent Postgres queue with leasing, retry/backoff, hourly recovery and auditable event receipts.
+
+`council.review` now has a source-level versioned evidence contract. Each available verifier, sentinel, planner and skeptic assessment names the council objective, exact observed GitHub source SHA, durable task/event receipt IDs, evidence time/freshness, dissent and known unknowns. GitHub observations read `main` before and after collection; drift invalidates the observation. CI evidence must be a complete exact-head inventory whose newest `Ultron core verification` push and required `test` job both completed successfully. PR inventories must not be truncated, and a rendered site must publish the same runtime source SHA rather than merely contain an app shell. The profiles are labeled `deterministic-role-profile`; four profiles from one algorithm never count as four independent reviewers. Assessment events are inserted into the existing `brain_events` ledger in the same lease-fenced PostgreSQL statement that completes the council task. A duplicate, malformed, stale, contradictory or source-mismatched receipt cannot become promotion evidence.
+
+The associated gate can mark evidence only `eligible-for-protected-pr`, never executable. The council anchors the complete decision to live `main` readbacks before and after evaluation and queries optional reviewer events and required evaluation events by the exact objective and source SHA. An independently supplied reviewer receipt, if present, must match its separately read identity attestation and trusted adapter; no individual reviewer is required. The gate still requires an active matching lease, any required provider/token readiness, and an objective-bound frozen disjoint before/after evaluation. The evaluation's event identity and time come from its ledger row. A separately persisted frozen-set manifest must predate every declared baseline/candidate task pair; each task must map one-to-one to a durable `observed` event whose joined task objective and result match the same objective, source, set, case and variant. Scores and failure counts are recomputed from those readbacks and must equal the evaluation record. Positive held-out gain, zero observed candidate failures/critical regressions, and matching postmerge runtime source remain required. External-action states and readbacks use a closed schema; duplicate IDs, unknown states and impossible combinations hold. An uncertain external write is read back and never replayed automatically. See [the issue #68 verification contract](../../docs/verification/ISSUE68-COUNCIL-EVIDENCE-2026-10-24.md) for historical criteria.
+
+The source includes a fail-closed GitHub adapter for independent-reviewer evidence and an advisory review-count proxy. Before review begins, an owner-authenticated PR comment freezes the proxy inputs. After the reviewed PR is the current merged `main`, the adapter requires the pinned CodeRabbit identity on that exact head, verifies current-main/reviewed-head tree equality, and commits the review projection in one idempotent SQL statement. The review-count projection is stored as `review-proxy-observed`; it never supplies the council's held-out event.
+
+A separate seeded evaluator can supply held-out evidence only after the candidate is merged unchanged. Its owner-authenticated, unedited pre-review manifest freezes the exact baseline/candidate SHAs, generator/workflow blob SHAs, case families, and `github.run_id` as the future seed source. GitHub Actions assigns that seed after merge, applies the same ten exact generated cases to both immutable revisions, and preserves the case report. The deployed adapter then verifies the exact run title, job and step, independently regenerates the cases from GitHub source, and atomically persists twenty disjoint task/outcome receipts. The CodeRabbit reviewer and GitHub Actions evaluator have distinct identities. Any edited manifest, source/tree drift, different workflow inputs, failed case, incomplete inventory, receipt conflict, or reread mismatch holds the gate. Hand-authored SQL labels remain insufficient. See [the seeded held-out acceptance contract](../../docs/verification/ISSUE68-SEEDED-HELDOUT-2026-10-26.md).
+
+Owner-only API: `GET/POST /api/brain/tasks`, `POST /api/brain/command`. Scheduler-only: `/api/brain/tick` (hourly) and `/api/brain/run` (asynchronous). Commands: `/help`, `/status`, `/repo inspect`, `/repo prs`, `/repo ci`, `/site render`, `/council review`, `/remember <note>`. Actions: queue, note, cancel, retry, and `acceptance` with an objective ID and merged candidate pull-request number.
+
+MCP tools include `ultron_status`, `ultron_queue`, `ultron_remember`, and `ultron_control`. They declare admin access and require independent OAuth authorization before use by a connected AI client. The source also adds `ultron_capabilities` for read-only discovery of the queue's actual objective catalog and an explicit inventory of existing MCP operation effects and limitations. The inventory is descriptive, not an admission gate, proof of provider access, or proof of deployment.
+
+### Signed MCP queue and control
+
+The source `ultron_queue` and `ultron_control` tools use `prepare`, `submit`,
+and read-only `reconcile` modes. This replaces their legacy MCP argument
+shapes. Each request includes a unique lowercase key, operation, exact objective
+or transition and task ID, and expected profile and stop versions. `prepare`
+returns the exact grant claims, including the SHA-256 request fingerprint;
+an independent adjudicator must sign the claims. `submit` verifies the grant
+and atomically consumes it, records the unique action identity, applies the
+bounded task change and writes the event receipt. Reuse of a key with
+different content is rejected. `reconcile` takes the same request and grant
+ID and only reads the durable receipt; an absent readback remains uncertain.
+
+Migration `0029_mcp_mutation_ledger.sql` is required. The owner must explicitly
+add `mcp.queue.submit` and/or `mcp.task.control` to the versioned autonomy
+profile; neither is enabled by default. The profile, stop version, paused
+state, $0 ceiling and grant expiry are checked at the SQL boundary. A consumed
+grant may be spent without a task effect when an action key conflicts. A
+queued task is processed by the existing hourly scheduler; admission does not
+request an immediate run. `unblock` has the same eligibility as `retry`.
+Legacy HTTP queue/control paths are separate and do not receive these grants.
+The event table is not an immutable hash ledger. Source changes do not
+establish deployment or live authorization.
+
+The source `ultron_github_issue` tool reads an issue number only from the
+fixed public Ultron.MW GitHub repository. It rejects redirects, bounds response
+size and time, and returns a small metadata projection. It does not itself
+write issues or accept arbitrary URLs.
+
+The source `ultron_graph_workbook` MCP tool exposes the single-cell Graph
+reader with admin access. Server-side configuration
+`ULTRON_GRAPH_WORKBOOK_BINDING` must be a JSON object with exactly `accountId`,
+`itemId`, `worksheetId` and `allowedCells` (an array of allowed A1 addresses).
+`ULTRON_GRAPH_DELEGATED_TOKEN` must hold the delegated access token; neither
+binding nor token can be supplied by an MCP request. The reader checks `/me`
+before requesting the cell. Microsoft documents
+`Files.ReadWrite` delegated permission for the workbook range API even for
+reads, and application permissions are not supported. The account check also
+requires access to `/me`. No credential, consent, refresh flow or runtime
+configuration is provisioned here. The source has not been deployed or verified
+against Hatchable's runtime configuration or a live Microsoft account.
+
+### Signed provider writes
+
+The source `ultron_graph_workbook_write` and `ultron_github_issue_write` tools
+support `prepare`, `submit`, and read-only `reconcile`. The owner must first
+apply migration `0031_mcp_provider_writes.sql`, configure the independent
+adjudicator public JWK, and explicitly select `graph.workbook.cell.write`
+and/or `github.issue.write` in the versioned autonomy profile. Neither is
+enabled by default. `prepare` returns the exact claims to be signed; `submit`
+requires an `envelope` with the signed payload and signature. Requests also
+require an idempotency key and the expected profile and stop versions.
+`reconcile` takes the same request and grant ID.
+
+Graph requests specify the cell, expected current value and new value, while
+account, workbook, worksheet and cell allowlist come only from the protected
+`ULTRON_GRAPH_WORKBOOK_BINDING` configuration. The runtime requires a
+separately provisioned `ULTRON_GRAPH_DELEGATED_TOKEN`. Microsoft documents
+`Files.ReadWrite` delegated permission for the range API; application
+permissions are not supported. The GitHub tool updates only the body and
+optional open/closed state of an issue in `michaeljwilliams0123/Ultron.MW`,
+using the separately provisioned `ULTRON_GITHUB_ISSUE_TOKEN`. Pull requests
+are rejected. Tokens are never accepted as tool arguments or logged.
+
+The claim atomically consumes the grant and writes a durable
+`reconcile-required` checkpoint and event before the provider call. A unique
+partial index blocks another unresolved write to the same target. Successful
+provider acknowledgement and independent readback are required before an
+observed receipt is committed. A lost claim acknowledgement, timeout, non-200
+response, failed readback or uncertain receipt is never automatically retried.
+Read-only reconciliation reports the stored result, including after grant
+expiry; an unresolved action requires an owner investigation before any
+separately authorized correction. It does not infer causation from a matching
+value alone.
+
+Microsoft's range-update API does not document conditional compare-and-set:
+Graph's pre-read is not atomic with its PATCH. Other writers can overwrite or
+be overwritten, and a matching readback does not establish exclusive control.
+GitHub issue changes can likewise race external editors. The ledger only
+serializes unresolved requests through this gateway, not other clients.
+Do not use these tools when concurrent changes cannot be tolerated. Stop or
+grant revocation cannot recall a network request already in flight.
+
+This source, migration and the new MCP tools have not been deployed or tested
+against Hatchable's live database, Microsoft account or GitHub credentials.
+
+### Signed MCP note source contract
+
+The source `ultron_remember` tool now supports `prepare`, `submit`,
+and read-only `reconcile`. `prepare` validates the exact note request and
+returns the grant request to be signed; it does not authorize or write it.
+This replaces the legacy `{kind, body}` MCP interface; clients must migrate.
+The existing independent adjudicator must sign an `ultron.security-grant.v1`
+payload with that request's exact actor, objective ID, operation, resource and
+administrative-change flag, plus its existing issuer, audience, grant ID,
+policy SHA, not-before and expiry claims. The resource is the SHA-256 digest
+of the normalized note request, including its key and expected profile and
+stop versions. Only the public verification JWK is configured in Hatchable;
+the signer and private key remain independent.
+
+On `submit`, the source verifies the signature and scope, and one PostgreSQL
+statement consumes the unique grant and creates a keyed note and event, gated
+by the current owner profile, stop version, pause state, allowed operation,
+and zero paid ceiling. It checks expiry again inside the statement. A lost
+response is read back, never blindly retried. Use `reconcile` with the exact
+request and grant ID to read the result, including after grant expiry.
+Unresolved or inconsistent readback is not success. Conflicting keys or a
+grant already consumed by another operation do not authorize a new note;
+an unused grant may be consumed even if a concurrent conflicting note wins.
+The separate legacy HTTP note route remains unchanged and is not governed by
+this MCP grant contract. This source contract has not been validated against a live
+PostgreSQL instance or deployed Hatchable runtime.
+
+## Evidence and constraints
+
+Production version 2 deployed October 22, 2026. Verified from the owner runtime: five objectives completed, native GitHub PR and workflow readback, Chromium-rendered GitHub Pages, deterministic council receipts, immediate owner task dispatch, cancel/retry and idempotency collision checks, rejection of unsupported commands, and public/member access denial.
+
+No provider LLM inference/credits, GitHub writes, PR merges, execution of arbitrary code, desktop remote control, or authenticated browser sessions are enabled here. The GitHub API accesses only public repo metadata. The backend deliberately performs no actions against private Mahoraga source.
+
+**Deployment is not automatic:** Hatchable is currently deployed from its project console through its connector. Files under `cloud/hatchable/` are mirrored source for review and recovery. A subsequent change must update both and verify that exact deployed version; do not assume merging this PR deploys the backend. GitHub main SHA and platform version must be reconciled before claiming source–production parity.
+
+Never place API keys or private notes in this public repository.
+
+## Mahoraga control lane (issue #95)
+
+The `ultron_mahoraga` owner-only MCP tool and `/api/brain/mahoraga` admin API
+accept two bounded writes: create an issue at an expected Mahoraga `main` SHA,
+or dispatch the existing Verify workflow on a `mahoraga/*` branch at an expected
+head SHA. Admission creates one `brain_tasks` identity in `external` state and
+one linked `mahoraga_actions` record with a matching event receipt. The cloud
+action key is unique; the intent is persisted before an external call and the
+state changes to `sent` before a POST.
+After that transition, repeat calls perform GitHub readback and never repeat
+the POST. A missing or ambiguous readback remains `uncertain`. The ordinary
+`brain_tasks` retry loop never executes external writes. A separate bounded
+hourly recovery scans only previously admitted `mahoraga_actions` and queues the
+existing scheduler worker. At most two actions are visited per hourly run:
+`prepared` actions may make their first write after independent App credentials
+are configured and the original exact-SHA preflight passes; `sent` or `uncertain`
+actions are readback-only. Missing credentials remain `prepared` with no write.
+Neither ordinary owner-requested runs nor read-only backlog continuations can
+activate the external recovery path. Recovery never creates new Mahoraga goals.
+
+The source MCP interface uses `prepare`, `submit`, and read-only `reconcile`.
+It replaces the earlier MCP argument shape. Prepare returns the exact
+independent-adjudicator grant request; submit verifies that signature and
+atomically consumes the grant, creates the action and task, binds the grant
+to the action, and emits events. Migration `0030_mahoraga_mcp_authority.sql`
+must be applied before deploying this source, including for legacy Mahoraga
+dispatch. The owner profile must explicitly include `repo.issue.create`
+and/or `repo.verify.dispatch`. The profile and stop versions, stop state, $0
+ceiling, operation membership and grant expiry are checked when a prepared
+action is claimed, including by hourly recovery, and again immediately before
+the provider POST. A profile change or expired grant therefore holds a
+prepared signed action. If authority is lost after the send checkpoint, the
+action remains non-replayable and must be reconciled; do not reset it. These
+checks cannot make PostgreSQL and GitHub one atomic transaction: revocation
+can race an already-starting network request. Grant or admission response loss
+is resolved by readback, not a blind repeated write. Existing HTTP and deep
+workflow routes remain separate legacy paths and do not acquire a signed
+grant merely because the MCP interface requires one.
+
+The migration, grant handling, scheduler recovery and source interface have
+not been validated against live PostgreSQL or deployed Hatchable, and no
+signer or provider credentials are provisioned by this change.
+
+The project manifest declares three **optional, protected** values: the
+Mahoraga-scoped GitHub App client ID, installation ID, and private key. They
+must be supplied in Hatchable Setup; no value belongs in Git or API requests.
+The app must be installed on only the private Mahoraga repository with
+`contents:read`, `issues:write`, and `actions:write`. Missing values leave the
+write lane unavailable while the read-only cloud brain continues to run.
+GitHub App identity is separate from the owner's human account and Destiny.
+
+The issue marker lets an uncertain issue creation reconcile exactly. GitHub's
+Verify dispatch API returns no run ID; readback accepts only one workflow run
+on the exact branch and SHA after the recorded attempt time. Concurrent matching
+runs remain uncertain rather than claiming a unique result. Do not manually
+reset a `sent` or `uncertain` action to `prepared`. Revoke the app installation
+to stop future calls. A source merge alone does not supply credentials, deploy
+this code, or prove a live Mahoraga write.
+
+
+## October 22 source hardening (PR #76; deployed in v3 on October 24)
+
+This PR now includes a lease-fenced, atomic task/event transition repair. Claim, completion, failure, expired-lease recovery, owner admission, cancellation/retry, note creation and hourly task admission write the matching audit receipt inside the **same PostgreSQL statement**. A worker that loses its lease returns `lost-lease` rather than inventing a `failed` receipt. The hourly handler only enqueues the read-only inspection task and schedules the separate bounded /api/brain/run worker when ready backlog exists; it does not execute slow site renders inside the short cron fire budget. This is not unlimited polling.
+
+Evidence: GitHub core Verify on historical commit `fcef009b6bbd3d8ff653aa3ebad51fe483b496ea` passed for that commit only; any newer PR head requires a separate exact-head Verify before merge. Mock-driver regression checks cover success/lost lease/idempotent admission/owner controls. Three representative atomic statements passed PostgreSQL non-executing `EXPLAIN` against live v2 schema. No crash fault-injection against the live runtime, user-session acceptance, or source-to-deployment parity is implied.
+
+**Do not deploy only these mirror files and assume the backend changed.** Review the complete PR, mirror the changed files through Hatchable's deployment path, validate with the platform dry-run, deploy deliberately, and then prove live task and event correlation, recovery, bounded backlog, owner authentication and rollback. Production is still version 2 until independently checked otherwise.
+
+For the model-powered next stage, see [OPENAI-AGENTS-INTEGRATION.md](./OPENAI-AGENTS-INTEGRATION.md). OpenAI inference and hosted sandboxes remain **off**; no billable requests were initiated.
+
+## Council execution ledger (C04, source-only until deployed)
+
+`migrations/0028_council_execution_ledger.sql` + `api/brain/council-ledger.js` + `lib/council-ledger.js`
+persist every Council action (reserve -> dispatched -> verified | executed | failed | reconcile-required)
+with compare-and-set transitions, append-only events and immutable terminal rows. `scripts/council-act.mjs`
+reserves before any external write, marks `dispatched` before the call, and recovers duplicates or
+interrupted acknowledgments by provider readback (hidden `council-exec:<key>` marker); it never re-sends a
+write whose outcome is unknown. Tested against real PostgreSQL via `@electric-sql/pglite`
+(`test/council-ledger-persistence.test.mjs`). Not deployed: apply the migration and deploy the endpoint in the
+Hatchable console, then set repository variable `COUNCIL_LEDGER_REQUIRED=true` to fail closed.
+## Read-only source/deployment parity check (not a deployment)
+
+To compare the source checked out at an exact PR head with a known live Hatchable deployment:
+
+1. In the **existing private Hatchable project**, retrieve `get_deployment(version)` for the **current** deployment and save its JSON response object (the fields `version`, `status`, and `file_manifest`) outside the repository, e.g. `/tmp/hatchable-deployment.json`. Do not save session data or credentials to GitHub.
+2. Check out the exact PR commit and run:
+
+   ```sh
+   node scripts/verify-hatchable-parity.mjs --manifest /tmp/hatchable-deployment.json --version 2 --head "$(git rev-parse HEAD)"
+   ```
+
+   In reviews/automation, replace the `--head` substitution with the exact expected **current PR head SHA** retrieved independently from GitHub, to detect an outdated checkout. Do not derive the expected SHA from the same checkout being checked.
+3. Inspect `parity`, `filesCompared`, and `differences`. Nonzero exit means mismatch or invalid evidence. The script compares SHA-256 *bytes and sizes* from immutable Git blobs at the declared exact head for every runtime file under `api/`, `lib/`, `mcp/`, `migrations/` and `hatchable.toml`. This avoids false mismatches from Windows line-ending conversion and prevents uncommitted working-tree bytes from being mistaken for reviewed source. It reports missing/extra/changed files, stale Git head, invalid manifests and stale/non-live versions. README and proposals are not deployed runtime files and are excluded.
+4. Immediately re-read Hatchable's **current** deployment version and the GitHub PR head after the comparison. An unchanged version and head are prerequisites for interpreting this snapshot as current. This local verifier does **not** query Hatchable on its own or prove production traffic, owner authentication, receipt integrity, crash recovery, or end-to-end acceptance.
+
+Tests: `node --test test/hatchable-parity.test.mjs` (also included in `node scripts/verify.mjs`). Run against the existing private project only; do not deploy draft source to force matching hashes. A mismatch is an expected **PRODUCTION_HOLD** until a separately approved source-merge and deliberate deployment/rollback sequence has been verified.
+
+## Historical V2 release-acceptance matrix — source-only gate (PR #76)
+
+**WorkId:** pr76-v2-release-acceptance-matrix-699abf0f. This checklist is a
+release **gate**, not deployment approval or evidence production was updated.
+At the Stage 2 handoff (October 23, 2026), Hatchable project
+proj_A6GCXRSKizko reported **live version 2**, with 15 runtime files.
+The last independently compared PR source snapshot found **four differences**;
+do not promote that historical result to a fresh production readback.
+The current source adds `lib/council-evidence.js`; it is intentionally absent
+from this historical 15-file live-v2 snapshot and therefore increases the
+source/deployment parity hold until a separately authorized deployment proves it.
+
+| Runtime source group | Files | Stage 2 source vs. live v2 |
+| --- | --- | --- |
+| API | api/brain/command.js, api/brain/tasks.js | 2 matched |
+| API scheduler | api/brain/run.js, api/brain/tick.js | **2 differed** |
+| Libraries | lib/brain-core.js | 1 matched |
+| Libraries / state | lib/brain-owner.js, lib/brain-runner.js | **2 differed** |
+| MCP | mcp/ultron_control.js, mcp/ultron_queue.js, mcp/ultron_remember.js, mcp/ultron_status.js | 4 matched |
+| Migrations | migrations/0001_tasks.sql, migrations/0002_events.sql, migrations/0003_native_commands.sql | 3 matched |
+| Configuration | hatchable.toml | 1 matched |
+| **Total** | **15 files** | **11 matched, 4 differed — PRODUCTION_HOLD** |
+
+The four divergent paths require independent functional acceptance, not just
+matching bytes:
+
+| Runtime path | Required acceptance evidence |
+| --- | --- |
+| api/brain/run.js | Authenticated scheduler dispatch, bounded processing/continuation, duplicate suppression, and task/event readback |
+| api/brain/tick.js | Hourly tick remains dispatch-only, does not run browser objectives inline, and dispatches expired-lease recovery within the scheduler budget |
+| lib/brain-owner.js | Owner-only admission, idempotency conflict, cancel/retry eligibility and atomic matching event receipts |
+| lib/brain-runner.js | Lease-fenced claim/complete/fail, atomic result/event, recovery after expired lease, and completion-write uncertainty without false failure or unsafe immediate replay |
+
+**Before any separately authorized deployment:** Re-read the exact GitHub PR
+head, required PR-head CI jobs, Hatchable project identity, current live
+deployment version/status and complete file manifest. Obtain an independent
+versioned manifest readback; use the immutable-Git-blob verifier above against
+that version and the exact current PR SHA. A stale head, missing/extra file,
+invalid/unsafe/duplicate manifest entry, non-live deployment or changed hash
+must fail closed. Preserve the previous live version and a documented rollback
+target. Never include credentials, private notes or tokens in the manifest.
+
+**After an explicitly authorized deployment:** Independently re-read the
+current deployed version and its 15-file manifest, verify all hashes/sizes
+against the reviewed Git SHA, then repeat the project/version/head readback to
+exclude races. Separately validate owner authentication, scheduler budget,
+durable receipt correlation, failed event-insert rollback, expired-lease
+recovery, completion-persistence uncertainty, and a bounded read-only replay
+scenario using isolated test data. A green GitHub unit test or synthetic
+manifest is **not** proof of live database or end-user behavior.
+
+**Release decision:** Keep **PRODUCTION_HOLD** and PR draft until the
+independent live evidence, rollback readiness, required CI and owner release
+authorization all pass. On any failure, stop promotion; if a deployment was
+performed, revert to the independently recorded prior live version and verify
+its status/readback. For this Stage 3 source-only change, rollback is a revert
+of its one PR-branch commit; do not alter the Hatchable deployment.
+
+
+### October 23 read-failure and recovery evidence (source-only)
+
+WorkId: `pr76-v2-release-acceptance-matrix-699abf0f`. The existing live
+Hatchable v2 tick returned HTTP 503 at 07:40:09 UTC; the observed
+`repo.inspect` task 37 failed a GitHub metadata read with
+`github-status-403`, recorded a failed receipt, and was queued at attempt
+1/3 with a 15-minute retry interval. The upstream 403 cause is **unknown**;
+a scheduler HTTP 503 does not independently establish that cause.
+
+**One-task production recovery confirmed (read-only, October 23, 2026):**
+Hatchable project `proj_A6GCXRSKizko` still reports **live v2**. A fresh
+SELECT of `brain_tasks` independently found the same task **37**
+(`repo.inspect`) at `done`, attempts **2/3**, with `lease_until=NULL`
+and `updated_at=2026-10-23T08:40:09.433068Z`. Its event ledger contains
+`#64 claimed` (attempt 1, 07:40:09 UTC), `#65 failed`
+(`github-status-403`), `#66 claimed` (attempt 2, 08:40:09 UTC), and
+`#67 observed` (`source=github-api`, 08:40:09 UTC). The independently
+reported hourly tick returned **200** at 08:40:09 UTC after **503** at
+07:40:09 UTC. This is evidence that **one read-only retry completed and
+persisted an observation**, not proof that the original GitHub 403 was
+diagnosed, that every scheduler fire succeeds, or that injected database
+failures and crash recovery are safe. No production task was created or
+modified to obtain this readback.
+
+The PR's isolated regression driver now exercises the actual GitHub-read
+objective through the runner with a synthetic 403, asserts **no observed
+receipt**, verifies a lease-fenced failure receipt and that an early retry
+cannot reclaim work, then accepts a valid SHA read after the configured
+15-minute interval. An expired-lease variant refuses a stale worker's
+failure receipt. These tests model database transitions and network replies;
+they are **not** live PostgreSQL fault injection or production recovery
+proof. No credentials, API billing, or production changes are involved.
+
+**At the October 23 source-only checkpoint, PRODUCTION_HOLD remained:** obtain independently authenticated GitHub
+403 diagnostics and live task/event correlation, prove bounded recovery
+under the deployed scheduler, and reconcile all 15 deployed runtime hashes
+(especially the four divergent files) before any separately approved
+deployment/merge or rollback decision.
+
+### October 24 scheduler recovery correction (source only)
+
+The hourly tick now dispatches the worker when an expired lease needs recovery,
+even if no task is currently queued. After a full four-task batch, the worker
+checks for ready work and schedules at most one additional bounded batch; that
+second batch cannot schedule another continuation. Focused tests exercise both
+paths, including the absence of inline work in the hourly tick. These source
+changes are not evidence that production v2 has been updated or that live
+PostgreSQL recovery has passed.

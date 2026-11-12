@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Council Room — Ultron.MW</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/council-room.css">
+</head>
+<body>
+<div class="app-shell">
+<header class="topbar">
+ <a class="brand" href="/"><span class="brand-mark">U</span><span><b>Ultron.MW</b><small>owner cloud</small></span></a>
+ <nav aria-label="Ultron workspace">
+  <a href="/workspace.html">Workspace</a>
+  <a href="/">Cloud controls</a>
+  <a href="/council-room.html" aria-current="page">Council room</a>
+  <a href="/passkey-owner.html">Owner passkeys</a>
+  <a href="/repair-operations.html">Repair operations</a>
+  <a href="/github-pr-comment-canary.html">GitHub App canary</a>
+ </nav>
+ <div class="system-pill" id="system-pill" data-state="connecting" role="status" aria-label="Room status: connecting"><span></span> Connecting…</div>
+</header>
+
+<main class="room-layout">
+<aside class="members-panel" aria-labelledby="members-title">
+ <div class="panel-heading"><div><p class="overline">ROOM / OWNER-MAIN</p><h1 id="members-title">Council</h1></div><span class="count">7</span></div>
+ <p class="panel-copy">Seven durable roles, one owner. Replies are evidence-linked and stay in this room.</p>
+ <div id="member-list" class="member-list" aria-live="polite"></div>
+ <div class="context-card">
+  <p class="overline">CONTEXT MESH</p>
+  <div><span class="dot live"></span> Ultron.MW</div>
+  <div><span class="dot live"></span> Mahoraga</div>
+  <div><span class="dot optional"></span> Cloudflare <em>on demand only</em></div>
+ </div>
+</aside>
+
+<section class="conversation" aria-labelledby="room-title">
+ <header class="conversation-head">
+  <div>
+   <p class="overline">PERSISTENT OWNER THREAD</p>
+   <h2 id="room-title">Ultron Council Room</h2>
+   <p>Start here. Companion replies first in plain language; the Council weighs in below. Decisions only you can make arrive as approval cards, and nothing runs unless you click Approve.</p>
+  </div>
+  <button class="ghost-button" id="refresh" type="button">Refresh</button>
+ </header>
+ <div id="room-status" class="room-status" role="status" aria-live="polite">Opening the room…</div>
+ <section id="sign-in-card" class="sign-in-card" aria-labelledby="sign-in-title" hidden>
+  <p class="overline">START HERE</p>
+  <h3 id="sign-in-title">Sign in to talk to the Council</h3>
+  <p id="sign-in-copy">The Council Room is owner-only. Sign in with Hatchable and you will come straight back here. Companion answers first, in plain language.</p>
+  <a id="sign-in-button" class="sign-in-button" href="#" rel="noopener">Sign in with Hatchable</a>
+ </section>
+ <ol id="message-list" class="messages" aria-label="Council conversation"></ol>
+ <button id="load-more" class="load-more" type="button" hidden>Load earlier messages</button>
+ <section id="issue-card" class="issue-card" aria-labelledby="issue-title">
+  <div class="routine-head"><p class="overline" id="issue-title">OPEN ISSUES</p><span>read-only</span></div>
+  <p>Advisory portfolio from public GitHub data. No issue or PR is changed.</p>
+  <button id="issue-refresh" class="ghost-button" type="button">Refresh open issue inventory</button>
+  <div id="issue-status" class="issue-status" role="status" aria-live="polite"></div>
+  <ol id="issue-list" class="issue-list"></ol>
+  <section id="issue-plan-panel" class="issue-plan-panel" aria-label="Issue-specific Council plan" hidden>
+   <h3 id="issue-plan-title">Council plan</h3>
+   <p id="issue-plan-status" role="status" aria-live="polite">Plan not requested.</p>
+   <p id="issue-plan-evidence"></p>
+   <ol id="issue-role-actions" class="issue-role-actions"></ol>
+   <label for="issue-change-paths">Optional owner-selected repository paths (one per line; maximum 6)</label>
+   <textarea id="issue-change-paths" rows="3" maxlength="1200" placeholder="cloud/hatchable/lib/example.js&#10;.github/workflows/verify.yml"></textarea>
+   <button id="issue-prepare" class="ghost-button" type="button">Prepare bounded PR proposal</button>
+   <button id="issue-send-room" class="ghost-button" type="button">Draft Council room discussion</button>
+   <div id="issue-pr-proposal" class="issue-pr-proposal" aria-live="polite"></div>
+   <p class="issue-warning">Plans are advisory. GitHub branches, commits and pull requests each require a separate owner approval. No automatic merge or deployment.</p>
+  </section>
+ </section>
+ <section class="composer" aria-label="Message the council">
+  <div class="composer-topline">
+   <span>Message the council</span>
+   <span id="char-count">0 / 6000</span>
+  </div>
+  <textarea id="composer-body" aria-label="Message the council" maxlength="6000" rows="4" placeholder="Ask the council to inspect, plan, compare, explain, or prepare the next action…"></textarea>
+  <div class="mention-row" id="mention-row" aria-label="Choose council members"></div>
+  <div class="composer-options">
+   <label><input id="include-mahoraga" type="checkbox" checked> Include Mahoraga evidence</label>
+   <label class="attachment-label">Result or source URL <input id="attachment-url" type="url" placeholder="https://…"></label>
+  </div>
+  <div class="composer-actions">
+   <p>No passwords, OTPs, private keys, or tokens. Sensitive steps become <b>Needs owner</b>.</p>
+   <button id="send" type="button">Send to council <span>↗</span></button>
+  </div>
+ </section>
+</section>
+
+<aside class="activity-panel" aria-labelledby="activity-title">
+ <div class="panel-heading"><div><p class="overline">EXECUTION</p><h2 id="activity-title">Activity</h2></div></div>
+ <div id="job-list" class="job-list"></div>
+ <section class="adapter-card">
+  <p class="overline">ADAPTERS</p>
+  <dl>
+   <div><dt>Conversation + state</dt><dd>Hatchable</dd></div>
+   <div><dt>Source + CI</dt><dd>GitHub</dd></div>
+   <div><dt>Knowledge lane</dt><dd>Mahoraga</dd></div>
+   <div><dt>Browser / VM</dt><dd>Cloudflare optional</dd></div>
+  </dl>
+ </section>
+ <section class="routine-card">
+  <div class="routine-head"><p class="overline">ROUTINES</p><span>live</span></div>
+  <h3>Council evidence loop</h3>
+  <p>Message → durable task → seven roles → repository readback → room receipt.</p>
+  <div class="routine-meta"><span>On message</span><span>$0 paid spend</span></div>
+ </section>
+ <a class="github-link" href="https://github.com/michaeljwilliams0123/Ultron.MW/actions" target="_blank" rel="noopener noreferrer">Open GitHub Actions ↗</a>
+</aside>
+</main>
+</div>
+<script src="/__hatchable/events.js"></script>
+<script src="/council-room.js"></script>
+<script src="/nav-guard.js" defer></script>
+</body>
+</html>

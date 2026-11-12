@@ -1,0 +1,205 @@
+#!/usr/bin/env node
+/** Phase 2 worker entrypoint. Runs one allowlisted objective in a short-lived
+ * GitHub-hosted job: reserve in the Hatchable ledger -> execute -> verify ->
+ * settle -> report. Fails closed when the ledger is unreachable. */
+import {readFileSync,writeFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {parseWorkerRequest,runWorkerOperation,toLedgerResult,sha256,assertWorkerSourceSha} from '../src/council-worker.mjs';
+import {unwrapBrowserIssue} from '../src/browser-action.mjs';
+import {unwrapBrowserWriteIssue,executeBrowserExternalWrite} from '../src/browser-external-write.mjs';
+import {createLedgerClient,runLedgeredAction} from '../src/council-ledger-client.mjs';
+
+const REPO='michaeljwilliams0123/Ultron.MW';
+const LEDGER='https://ultron-mw-cloud.hatchable.site/api/brain/council-ledger';
+let input;
+if(process.env.GITHUB_EVENT_NAME==='issues'){
+  const event=JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
+  if(process.env.GITHUB_REPOSITORY!=='michaeljwilliams0123/Ultron.MW'||
+    process.env.GITHUB_ACTOR!=='michaeljwilliams0123'||
+    event?.action!=='opened'||event.issue?.user?.login!=='michaeljwilliams0123'||
+    event.issue?.state!=='open')
+    throw Error('browser-issue-authority-denied');
+  if(event.issue.title==='[Ultron Worker] Browser execution')
+    input=unwrapBrowserIssue(event.issue.body,event.issue.number);
+  else if(event.issue.title==='[Ultron Worker] Browser external acceptance')
+    input=unwrapBrowserWriteIssue(event.issue.body,event.issue.number);
+  else throw Error('browser-issue-title-denied');
+}else input=process.env.WORKER_REQUEST||readFileSync('council-worker-request.json','utf8');
+const req=parseWorkerRequest(input);
+assertWorkerSourceSha(req,process.env.GITHUB_SHA);
+if(req.op==='browser.external-write'&&
+   (process.env.GITHUB_EVENT_NAME!=='issues'||!Number.isSafeInteger(req.issueNumber)))
+  throw Error('browser-write-owner-issue-required');
+
+const requestUrl=process.env.ACTIONS_ID_TOKEN_REQUEST_URL,requestToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+if(!requestUrl||!requestToken)throw Error('github-oidc-unavailable');
+const oidcFor=async body=>{
+  const url=new URL(requestUrl);
+  url.searchParams.set('audience','ultron.council.v1:sha256:'+createHash('sha256').update(body).digest('hex'));
+  const r=await fetch(url,{headers:{authorization:'Bearer '+requestToken}});
+  if(!r.ok)throw Error('github-oidc-request-failed:'+r.status);
+  const j=await r.json();
+  if(typeof j.value!=='string')throw Error('github-oidc-token-missing');
+  return j.value;
+};
+const ledger=createLedgerClient(async body=>{
+  const text=JSON.stringify(body);
+  const r=await fetch(LEDGER,{method:'POST',signal:AbortSignal.timeout(20000),
+    headers:{authorization:'Bearer '+await oidcFor(text),'content-type':'application/json'},body:text});
+  return{status:r.status,body:await r.json().catch(()=>null)};
+});
+
+const gh=token=>async path=>{
+  const r=await fetch('https://api.github.com'+path,{signal:AbortSignal.timeout(15000),
+    headers:{authorization:'Bearer '+token,accept:'application/vnd.github+json','user-agent':'ultron-council-worker'}});
+  if(!r.ok)throw Error('github-'+r.status);
+  return r.json();
+};
+const deps={github:gh(process.env.GITHUB_TOKEN)};
+if(process.env.MAHORAGA_REPOSITORY&&process.env.MAHORAGA_READ_TOKEN){
+  deps.mahoragaRepo=process.env.MAHORAGA_REPOSITORY;
+  deps.mahoragaGithub=gh(process.env.MAHORAGA_READ_TOKEN);
+}
+if(req.op==='browser.check'||req.op==='browser.action'||req.op==='browser.external-write'){
+  try{
+    const {chromium}=await import('playwright');
+    deps.browser={
+      async check(url){
+        const browser=await chromium.launch();
+        try{
+          const context=await browser.newContext({acceptDownloads:false,serviceWorkers:'block'});
+          const page=await context.newPage();
+          const resp=await page.goto(url,{timeout:30000,waitUntil:'load'});
+          const shot=await page.screenshot();
+          return{status:resp?.status()||0,title:await page.title(),
+            text:(await page.innerText('body')).slice(0,20000),screenshotSha256:sha256(shot.toString('base64'))};
+        }finally{await browser.close();}
+      },
+      async open(url,origin){
+        // No persisted cookies, privileged site sessions or cross-origin fetches.
+        const browser=await chromium.launch();
+        try{
+          const context=await browser.newContext({
+            acceptDownloads:false,serviceWorkers:'block',permissions:[]});
+          await context.route('**/*',async route=>{
+            let allowed=false;
+            try{const u=new URL(route.request().url());
+              allowed=u.protocol==='https:'&&u.origin===origin&&
+                !u.username&&!u.password&&!u.port;
+            }catch{}
+            if(allowed)await route.continue();else await route.abort();
+          });
+          const page=await context.newPage();
+          page.on('popup',popup=>{popup.close().catch(()=>{});});
+          const response=await page.goto(url,{timeout:30000,waitUntil:'domcontentloaded'});
+          if(!response||response.status()<200||response.status()>=400)
+            throw Error('browser-navigation-unverified');
+          return {
+            read:async selector=>page.locator(selector).innerText({timeout:10000}),
+            perform:async step=>{
+              const loc=page.locator(step.selector);
+              if(await loc.count()!==1)throw Error('browser-action-selector-not-unique');
+              if(step.kind==='click')await loc.click({timeout:12000});
+              else if(step.kind==='fill')await loc.fill(step.value,{timeout:12000});
+              else throw Error('browser-action-unsupported-step');
+            },
+            url:async()=>page.url(),
+            close:async()=>browser.close()
+          };
+        }catch(error){await browser.close();throw error;}
+      },
+      async externalWrite(plan){
+        const origin='https://ultron-mw-cloud.hatchable.site';
+        const endpoint=origin+'/api/brain/browser-write-acceptance';
+        return executeBrowserExternalWrite(plan,{
+          perform:async p=>{
+            const live=await chromium.launch();
+            let submits=0;
+            try{
+              const context=await live.newContext({
+                acceptDownloads:false,serviceWorkers:'block',permissions:[]});
+              await context.route('**/*',async route=>{
+                const request=route.request();
+                let u;
+                try{u=new URL(request.url());}catch{return route.abort();}
+                if(u.protocol!=='https:'||u.origin!==origin||u.port||
+                   u.username||u.password)return route.abort();
+                if(u.pathname==='/api/brain/browser-write-acceptance'){
+                  if(request.method()!=='POST'||submits!==0)
+                    return route.abort();
+                  const body=request.postData();
+                  let parsed;
+                  try{parsed=JSON.parse(body);}catch{return route.abort();}
+                  if(parsed.schema!=='ultron.browser-write.v1'||parsed.phase!=='submit'||
+                     parsed.objectiveId!==p.objectiveId||
+                     parsed.sourceSha!==p.sourceSha||parsed.marker!==p.marker||
+                     parsed.issueNumber!==req.issueNumber)return route.abort();
+                  submits++;
+                  const token=await oidcFor(body);
+                  return route.continue({headers:{
+                    ...request.headers(),authorization:'Bearer '+token}});
+                }
+                return route.continue();
+              });
+              const url=new URL(p.url);
+              url.search=new URLSearchParams({
+                objectiveId:p.objectiveId,sourceSha:p.sourceSha,
+                issueNumber:String(req.issueNumber)}).toString();
+              const page=await context.newPage();
+              page.on('popup',popup=>{popup.close().catch(()=>{});});
+              const response=await page.goto(url.toString(),{
+                timeout:30000,waitUntil:'domcontentloaded'});
+              if(!response||response.status()!==200)
+                throw Error('browser-write-page-unavailable');
+              const before=await page.locator('#result').innerText();
+              await page.locator('#work-input').fill(p.marker);
+              await page.locator('#run-task').click();
+              await page.waitForFunction(marker=>
+                document.getElementById('result')?.textContent==='Persisted: '+marker,
+                p.marker,{timeout:20000});
+              const domText=await page.locator('#result').innerText();
+              return {domChanged:domText!==before,domText,
+                origin:new URL(page.url()).origin};
+            }finally{await live.close();}
+          },
+          readback:async p=>{
+            const body=JSON.stringify({
+              schema:'ultron.browser-write.v1',phase:'readback',
+              objectiveId:p.objectiveId,sourceSha:p.sourceSha,
+              marker:p.marker,issueNumber:req.issueNumber});
+            const response=await fetch(endpoint,{
+              method:'POST',signal:AbortSignal.timeout(15000),
+              headers:{authorization:'Bearer '+await oidcFor(body),
+                'content-type':'application/json'},body});
+            if(!response.ok)throw Error('browser-write-readback-http-'+response.status);
+            return response.json();
+          }
+        });
+      }
+    };
+  }catch{/* missing Playwright -> explicitly unconfigured */}
+}
+
+const intent={role:req.role,operation:req.op,caseDigest:req.caseDigest,sourceSha:req.sourceSha,ordinal:0,
+  authContext:{executor:'github-actions',runId:process.env.GITHUB_RUN_ID||null,objectiveId:req.objectiveId},
+  expectedEffect:'worker:'+req.op,targetUrl:'worker:'+req.objectiveId};
+let captured=null;
+const outcome=await runLedgeredAction({ledger,intent,
+  execute:async()=>{captured=await runWorkerOperation(req,deps);return toLedgerResult(captured);}});
+
+const report={schema:'ultron.council-worker-result.v1',objectiveId:req.objectiveId,op:req.op,
+  executionKey:outcome.executionKey||null,ledgerState:outcome.ledgerState||null,status:outcome.status,
+  skipped:Boolean(outcome.skipped),result:captured,independentReview:false,modelInvoked:false,
+  runUrl:process.env.GITHUB_SERVER_URL?process.env.GITHUB_SERVER_URL+'/'+REPO+'/actions/runs/'+process.env.GITHUB_RUN_ID:null};
+writeFileSync('council-worker-result.json',JSON.stringify(report,null,2));
+console.log(JSON.stringify(report,null,2));
+
+if(req.issueNumber&&outcome.executionKey){
+  const body='**Ultron worker** `'+req.op+'` → ledger `'+(report.ledgerState||'n/a')+'` (`'+report.executionKey.slice(0,12)+'`). '+
+    (captured?.verification?.ok?'Verified by post-action check.':'Not verified.')+'\n\n<!-- council-worker:'+report.executionKey+' -->';
+  await fetch('https://api.github.com/repos/'+REPO+'/issues/'+req.issueNumber+'/comments',{method:'POST',
+    signal:AbortSignal.timeout(15000),headers:{authorization:'Bearer '+process.env.GITHUB_TOKEN,
+    accept:'application/vnd.github+json','user-agent':'ultron-council-worker','content-type':'application/json'},
+    body:JSON.stringify({body})}).catch(()=>{});
+}
+if(!['done','recovered','duplicate','planned'].includes(outcome.status))process.exitCode=1;

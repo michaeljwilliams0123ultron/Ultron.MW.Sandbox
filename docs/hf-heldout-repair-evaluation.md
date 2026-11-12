@@ -1,0 +1,82 @@
+# Ultron Held-out Code Repair Evaluation (C06 / EV / C11)
+
+This is a **behavior-scored synthetic benchmark**, not an autonomous release or a held-out independent human evaluator. It expands the four-case string-replacement smoke test in PR #247 without promoting either coding model.
+
+## Design
+
+- 16 synthetic broken **multi-line JavaScript functions** modeled on real Ultron engineering failure classes: owner pause, stale grant, SHA pinning, paid cost rejection, unknown write acknowledgments, leases, external provider readback, duplicate side effects, merge gates, per-call advancement budget, idempotency, permission scope, rollback, receipt consistency and HTTP errors.
+- Each case has **three or four** distinct input/output vectors and a reference function. The model sees the broken source and the repair instruction, **never** the reference function or the expected vectors.
+- The scorer rejects malformed, oversized, unscoped, unsafe or unexecutable model responses. A successful source proposal must pass **every** behavior vector for a given case. Errors/failures produce explicit failed case receipts and do not make the GitHub job fail on ordinary incorrect model output.
+- The isolated Node VM context has no process, filesystem, network or credential variables. It enforces a 150-ms execution timeout per vector; unsafe token patterns are rejected before execution. **Node VM is not a hardened security boundary** and may not safely execute arbitrary adversarial code. This workflow uses only synthetic public cases on throwaway, read-only public GitHub runners.
+- The immutable-format receipt identifies source SHA, actual Hub model revision SHA, frozen corpus SHA-256 digest, eight ordered case decisions per shard, passed count, inference duration, paidCents:0 and a SHA-256 receipt digest.
+
+## CPU deployment
+
+Dispatch `.github/workflows/hf-heldout-cpu.yml` manually on **protected main** after the source PR merges. It runs four allowlisted ONNX model profiles x two disjoint shards, `max-parallel: 4`, on standard `ubuntu-24.04` runners, with 20-minute timeout per job. Peak per-runner resources are 4 vCPU / 16 GiB RAM, up to 16 vCPU / 64 GiB aggregate across four concurrent runners. Models are quantized q4 and inference runs on **CPU only**. The four-model eight-job tiny smoke test remains available separately. The original November 4, 2026 six-job run is preserved below as historical evidence.
+
+All model results remain **advisory**. A score improvement on these 16 synthetic functions does **not** establish capability to coordinate a three-file feature, reliably fix a production bug, independently pass Reef, or authorize a model promotion. Larger pinned case sets, real candidate PRs, strict exact-head acceptance and independently observed deployment/runtime effects remain required by #245/#204/#193/#173.
+
+## Restrictions
+
+- $0 paid-spend ceiling; no HF Jobs, Inference Providers billing, GitHub large/GPU runners, subscriptions, private-repository compute, scheduled jobs or new credentials.
+- Owner authorization and protected branch rules remain unchanged.
+- One separate, opt-in ZeroGPU capability is tracked as #248; this suite makes **no GPU usage claim**.
+- No generated source is committed, no PR is opened by model output, no model changes its evaluator, no commit reaches main except the normal protected merge for this reviewed evaluator.
+- Corpus changes require a new PR and produce a different digest. Store every run's source/model/corpus hashes; **do not compare scores across different corpora without explicitly accounting for the changed data.**
+
+## Recorded evidence
+
+After successful workflow dispatch, attach the actual run URL, eight artifact IDs and case-level pass counts to #249 and the parent acceptance issues. Until then, source CI passing validates only the **benchmark implementation**, not live inference or compute concurrency.
+
+## First real held-out evaluation: November 4, 2026 UTC
+
+**Reference:** [owner-dispatched GitHub Actions run #41759330401](https://github.com/michaeljwilliams0123/Ultron.MW/actions/runs/41759330401) · protected source `c621134dcf7f1893b047463ecc8945807354a720` (squash PR #250) · frozen corpus digest `f544c3fc6366959d6def15bc1cb191ff583ee9bc73c284c10cbd1e4bb2817fdd`.
+
+All **six** CPU evaluation jobs completed successfully (two shards per model), and **six** JSON artifacts were uploaded. These are execution successes, **not** successful repairs. Every shard independently reported `paidCents:0`; no GPU, paid Inference Providers or Hugging Face Jobs were used.
+
+| Model / immutable revision | Shard 0 | Shard 1 | Fully correct functions | Conclusion |
+| --- | --- | --- | --- | --- |
+| Qwen2.5-0.5B baseline · `516c8d04add8a80c5228f32102b57953b8d421a9` | 0 / 8 | 0 / 8 | **0 / 16** | Not qualified |
+| Qwen2.5-Coder-0.5B · `604bb1988ff789d5024d589c63cf9ae81c0c8ab5` | 0 / 8 | 0 / 8 | **0 / 16** | Not qualified |
+| Qwen2.5-Coder-1.5B · `774cc908b6c2be23bc4e8d4e401e4f8b8fba7daf` | 1 / 8 | 1 / 8 | **2 / 16** | Not qualified |
+
+The 1.5B model solved `owner-pause` and `lease-expiry` fully; several other proposals matched only part of their expected behavior. Both 0.5B models frequently returned invalid complete-function formats, so zero scores are **not** proof of an absence of any underlying coding capability. The former four-case simple-literal smoke test (Coder 0.5B **4/4**) is insufficient evidence of substantive code-repair readiness.
+
+**Artifact readbacks:** `13288884735`, `13289866945` (baseline); `13289662666`, `13290325205` (Coder 0.5B); `13289008654`, `13289931834` (Coder 1.5B). They retain per-case results and source/model/corpus SHA receipts.
+
+**Cross-system continuity:** A separate owner-scoped Hatchable native observation recorded the verified aggregate result as `brain_notes.id=9` and `brain_events.id=997`, independently joined from PostgreSQL. Same-key replay returned HTTP 200 `reused:true` without an additional note or event. This is an **observation**, not autonomous release execution.
+
+**Consequence:** do **not** promote either coding model based on this benchmark. Continue #245 with source-isolated response-format diagnosis, stronger open CPU candidates where actual resource budgets permit, and a true model-attributable 3+ file code/test/docs repair; keep #193, #204, #173 and the C06/C13 production gates open. The initial benchmark outcome fulfills the bounded evaluation scope of #249, not those parent issues.
+
+## C06/HF continuation: bounded output-shape diagnosis and 3B CPU challenger
+
+**Issue:** #252. This updates the evaluation implementation but does not rewrite or invalidate the November 4 historical receipts. An unchanged 16-case synthetic corpus still has the same SHA-256 digest; any new scores must be associated with the new evaluator source SHA and output-normalization policy.
+
+- `src/hf-repair-output.mjs` accepts one exact `function fix(input)`, one complete JS/JavaScript Markdown fenced function, or one recognized short explanatory prefix followed by exactly one function. It does **not** silently strip appended executable code, duplicate functions, incomplete definitions, unrecognized preambles or oversized responses. All accepted candidates still pass through the original unsafe-source policy and independent behavioral vectors. Node VM remains **not a security boundary**; execute synthetic tests on disposable read-only public runners only.
+- Each model response now generates bounded `shape`, character count, fence presence and declaration count metadata. The new `ultron.hf.repair-output-shapes.v1` sidecar has its own SHA-256 digest and the same source/model/corpus/shard lineage as the original behavior receipt. **No raw generated code, credentials or user input is emitted to diagnostics**. A missing model output is explicitly classified; a valid output that fails functional vectors remains a semantic failure, not a format failure.
+- Added evaluation-only `onnx-community/Qwen2.5-Coder-3B-Instruct` with exact Hugging Face Hub revision `0e076a9c5291f8c74b3ce1558f21336b18f94739`. Public Hub metadata on November 4 lists ONNX `model_q4.onnx` plus `model_q4.onnx_data`. This larger candidate is **never automatically promoted**. Its license terms and actual free-runner memory/runtime acceptance require review before production selection.
+- New manual public CPU comparison: **four** model profiles x **two** disjoint eight-case shards = **eight** finite jobs, `max-parallel:4`, each 4 vCPU / 16 GiB; no paid GPU runner, HF Jobs, inference billing, new secret or scheduled tasks. If a 3B shard exceeds its resource/time budget, fail visibly instead of retrying on metered compute.
+- SD009WC7's authorized Windows desktop is used only for source development and deterministic regression tests. Its Intel Arc GPU is **not assumed compatible with the existing ONNX pipeline** and does not become a requirement of Hatchable/GitHub production.
+
+**Still required:** merge only after exact-head CI and review-state checks, manually run the revised workflow from protected `main`, inspect eight model-plus-shape artifacts, compare formatting and semantic failure counts against the initial 16-case result, and record owner-scoped readback in the existing Hatchable ledger. #245/#188/#173/#204 remain open until actual autonomous engineering and external evidence gates are met.
+
+## Live corrected-format benchmark: November 4, 2026 UTC (issue #252)
+
+**Executed, not simulated:** [GitHub Actions run #41764422463](https://github.com/michaeljwilliams0123/Ultron.MW/actions/runs/41764422463), source commit `8530f25885dab764d4eb03fcf1bc76fb07c4487c` (protected squash PR #255). All **eight standard public CPU jobs completed successfully**, produced eight artifact packages (each including original case outcomes and shape metadata), and reported `paidCents:0` per shard. This is a self-reported job ledger, **not** an independently obtained cloud billing statement. No metered Hugging Face Jobs, GPU runners, credentials or subscriptions were activated.
+
+The same 16-case synthetic corpus was frozen at SHA-256 `f544c3fc6366959d6def15bc1cb191ff583ee9bc73c284c10cbd1e4bb2817fdd`. The scoring implementation changed to admit **one** bounded, safely parsed function from an otherwise valid Markdown fence, so compare this run with earlier results only with both source SHAs attached.
+
+| Candidate and immutable model revision | Shard 0 | Shard 1 | Complete repairs | Output-shape findings |
+| --- | ---: | ---: | ---: | --- |
+| 0.5B general `516c8d04add8a80c5228f32102b57953b8d421a9` | 0/8 | 1/8 | **1/16** | 7 fenced; 6 invalid fences; 2 duplicate functions; 1 trailing content |
+| 0.5B Coder `604bb1988ff789d5024d589c63cf9ae81c0c8ab5` | 1/8 | 0/8 | **1/16** | 16 fenced; formatting accepted, mostly behavioral failures |
+| 1.5B Coder `774cc908b6c2be23bc4e8d4e401e4f8b8fba7daf` | 1/8 | 1/8 | **2/16** | 16 exact functions; mostly behavioral failures |
+| **3B Coder** `0e076a9c5291f8c74b3ce1558f21336b18f94739` | 3/8 | 4/8 | **7/16** | 16 fenced, 16 accepted, 9 behavior/execution failures |
+
+Qwen2.5-Coder 3B's two CPU-only shards each ran within the standard-runner 20-minute limit and recorded **252,078 ms** and **279,328 ms** of model evaluation. The q4 ONNX assets were confirmed on Hugging Face, but the model's upstream [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/blob/main/LICENSE) restricts use to **noncommercial research/evaluation** without a separately negotiated commercial license. The registry explicitly marks the 3B profile `noncommercial-evaluation-only`; `selectFreeModelProfile` still disallows every non-baseline candidate in production mode. The 3B model is **not eligible for automatic promotion**, irrespective of these preliminary scores.
+
+**Eight inspectable artifact package IDs:** baseline `13291569285`, `13291274776`; Coder 0.5B `13291469518`, `13292240985`; Coder 1.5B `13291614364`, `13292036782`; Coder 3B `13292291509`, `13291299445`. Original behavior scores plus source/model/corpus/shard SHA evidence are retained; the new output-shape sidecars provide bounded metadata, not raw model replies.
+
+**Owner-brain evidence:** The result was persisted in the existing Hatchable cloud ledger as `brain_notes.id=10` / `brain_events.id=1009`, action key `hf:heldout:run41764422463:observation:v1`. Independent PostgreSQL readback found exactly one matching note/event; same-key replay returned HTTP 200 `reused:true`. This is a reliable **observation**, not a production write by the model.
+
+**Disposition:** Issue #252's bounded model-output diagnosis and candidate evaluation are complete. Model promotion remains blocked because the 3B model solved only 7/16 synthetic functions and has research-only licensing. Refs #245 (true autonomous three-file source→PR→protected release), #173/#204 (independent evaluator), #193 (learning), #248 (ZeroGPU). Their acceptance criteria remain outstanding.

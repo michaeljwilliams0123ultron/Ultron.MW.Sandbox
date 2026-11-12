@@ -1,0 +1,145 @@
+name: Ultron core verification
+# A repair's unique dispatch marker is surfaced in the GitHub run display_title.
+run-name: ${{ inputs.repair_correlation && format('Ultron repair {0}', inputs.repair_correlation) || github.event.pull_request.title || github.event.head_commit.message || 'Ultron core verification' }}
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+  workflow_dispatch:
+    inputs:
+      repair_correlation:
+        description: 'Optional bounded repair-attempt identifier (no secrets)'
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ultron
+          POSTGRES_PASSWORD: ci-only-ephemeral
+          POSTGRES_DB: ultron
+          ULTRON_TEST_POSTGRES: repair-ci-ephemeral-v1
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ultron -d ultron"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Configure Git bare-repository policy
+        run: git config --global safe.bareRepository explicit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install audited locked model runtime
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node scripts/verify-audited-lockfile.mjs
+          npm audit --omit=dev --audit-level=high
+          npm audit --include=dev --audit-level=high
+          node --input-type=module -e "await import('@huggingface/transformers')"
+      - name: Install test-only PostgreSQL engine (not saved, not shipped)
+        run: npm install --no-save --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.15
+      - name: Lint all workflows
+        run: bash scripts/lint-workflows.sh
+      - name: Fast autonomous repair smoke (unprivileged, fixed commands)
+        run: npm run verify:fast
+      - name: Syntax and regression checks
+        run: node scripts/verify.mjs
+      - name: PostgreSQL-backed acceptance replay and conflict checks
+        env:
+          ULTRON_POSTGRES_TEST: '1'
+          ULTRON_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: node --test --test-concurrency=1 test/hatchable-acceptance-postgres.test.mjs test/hatchable-heldout-postgres.test.mjs test/hatchable-owner-stop-postgres.test.mjs test/hatchable-completion-readback-postgres.test.mjs test/hatchable-process-recovery-postgres.test.mjs test/mahoraga-process-recovery-postgres.test.mjs test/repair-pr-postgres-live.test.mjs test/continuum-outbox-postgres.test.mjs test/hatchable-cloud-action-postgres.test.mjs
+  attested-receipt:
+    needs: test
+    if: >-
+      needs.test.result == 'success' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        ((github.event.pull_request.user.login == 'michaeljwilliams0123' &&
+          github.event.pull_request.user.id == 308995719) ||
+         (github.event.pull_request.user.login == 'michaeljwilliams0123ultron' &&
+          github.event.pull_request.user.id == 354634860))))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Configure Git bare-repository policy
+        run: git config --global safe.bareRepository explicit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - name: Create non-sensitive exact-source verification receipt
+        run: node scripts/write-github-verification-receipt.mjs artifacts/github-verification-receipt.json
+      - name: Sign receipt provenance with GitHub OIDC and Sigstore
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/github-verification-receipt.json
+      - name: Retain receipt and Sigstore bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: attested-verification-${{ env.SOURCE_SHA }}-${{ github.run_attempt }}
+          path: |
+            artifacts/github-verification-receipt.json
+            ${{ steps.attest.outputs.bundle-path }}
+          if-no-files-found: error
+          retention-days: 7
+  fixed-comparison:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Configure Git bare-repository policy
+        run: git config --global safe.bareRepository explicit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Reject accidental acceptance-issue closure references
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-protected-issue-closures.mjs
+      - name: Evaluate fixed cases on exact base and candidate sources
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --test test/fixed-comparison.test.mjs
+          node scripts/compare-acceptance-evidence.mjs "$BASE_SHA" "$CANDIDATE_SHA" artifacts/fixed-comparison.json
+      - name: Preserve case-level task and event readbacks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fixed-comparison-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: artifacts/fixed-comparison.json
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+/** Generate GitHub App registration blueprints. This program never creates Apps,
+ * requests tokens, installs anything, or writes credentials.
+ * The owner must register/install each private App through GitHub settings.
+ * The webhook is disabled until its authenticated receiver is reviewed.
+ */
+import {COUNCIL_APP_ROLES,councilAlias,buildCouncilAppManifest,
+ councilCapacityReport} from '../src/council-app-identities.mjs';
+import {SME_DOMAINS,COUNCIL_LIFECYCLE} from '../src/council-shared-collaboration.mjs';
+import {councilMemberIdentity} from '../src/council-members.mjs';
+
+const args=process.argv.slice(2);
+if(args.length!==1||!['--profile=scoped','--profile=engineering-autonomy','--profile=collaborative-sme','--profile=owner-requested','--profile=owner-equivalent'].includes(args[0])){
+ console.error('usage: node scripts/council-app-manifests.mjs --profile=scoped|engineering-autonomy|collaborative-sme|owner-requested|owner-equivalent');
+ process.exitCode=2;
+}else{
+ const profile=args[0].split('=')[1];
+ const mailbox=process.env.COUNCIL_NOTIFICATION_MAILBOX||null;
+ const repository='michaeljwilliams0123/Ultron.MW';
+ const webhookUrl='https://ultron-mw-cloud.hatchable.site/api/brain/council-events';
+ const apps=COUNCIL_APP_ROLES.map(role=>({
+  role,
+  expertise:SME_DOMAINS[role],
+  gmailAlias:mailbox?councilAlias(mailbox,role):null,
+  manifest:buildCouncilAppManifest(role,{repository,webhookUrl,profile}),
+  credentialSecretNames:(({appId,privateKey,installationId})=>({appId,signingKey:privateKey,installationId}))(councilMemberIdentity(role).credentialEnv),
+  registrationPage:'https://github.com/settings/apps/new',
+  installationStatus:'NOT_INSTALLED',
+  requiresIndividualOwnerApproval:true
+ }));
+ console.log(JSON.stringify({
+  schema:'ultron.council-github-app-blueprints.v1',
+  repository,permissionProfile:profile,identityCount:apps.length,
+  sharedCaseSchema:'ultron.council.shared-case.v1',
+  sharedLifecycle:COUNCIL_LIFECYCLE,
+  registrationStatus:'NOT_REGISTERED',
+  requiresOwnerInstallApproval:true,
+  createsSecrets:false,
+  createsAccounts:false,
+  deploys:false,
+  enablesWebhooks:false,
+  quota:councilCapacityReport(),
+  apps
+ },null,2));
+}

@@ -1,0 +1,547 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const coreSource = `export const ALLOWED=new Set(['repo.inspect']);
+export const CAPABILITIES=[{id:'repo.inspect'}];
+export async function executeObjective(objective){return {objective,source:'fixture',sha:'fixed-test-sha'};}
+export async function buildCouncilRoomResult(){return {objective:'council.room',members:[]};}`;
+const coreUrl='data:text/javascript;base64,'+Buffer.from(coreSource).toString('base64');
+const liveUrl='data:text/javascript;base64,'+Buffer.from(
+ "export async function notifyOwner(){return true;}"
+ ).toString('base64');
+const stopUrl='data:text/javascript;base64,'+Buffer.from(
+ "export async function readExecutionControl(){return {paused:false,version:1};}"
+ ).toString('base64');
+async function moduleUnderTest(path,core=coreUrl){
+ const source=await readFile(new URL('../cloud/hatchable/lib/'+path,import.meta.url),'utf8');
+ const acceptance=`data:text/javascript;base64,${Buffer.from(
+  'export async function persistAcceptanceEvidence(){return {ok:true,receipts:{reviewer:true}}};'
+ ).toString('base64')}`;
+ const heldout=`data:text/javascript;base64,${Buffer.from(
+  'export async function persistHeldOutEvidence(){return {ok:true,receipts:{}}};'
+ ).toString('base64')}`;
+ const transformed=source.replace("from 'lib/brain-core.js'","from '"+core+"'")
+ .replace("from 'lib/council-room-core.js'","from '"+core+"'")
+  .replace("from 'lib/runtime-control.js'","from '"+stopUrl+"'")
+  .replace("from 'lib/acceptance-evidence.js'","from '"+acceptance+"'")
+  .replace("from 'lib/heldout-evidence.js'","from '"+heldout+"'")
+  .replace("from 'lib/owner-live-events.js'","from '"+liveUrl+"'");
+ assert.notEqual(transformed,source,'test import alias should be replaced');
+ return import('data:text/javascript;base64,'+Buffer.from(transformed).toString('base64'));
+}
+const {runOne}=await moduleUnderTest('brain-runner.js');
+const {queueObjective,readQueuedObjective,controlTask,saveNote,admitAcceptanceEvidence}=
+ await moduleUnderTest('brain-owner.js');
+
+test('cloud: owner acceptance combines independent review and held-out receipts',async()=>{
+ assert.deepEqual(await admitAcceptanceEvidence({db:{}},'issue-68-stage-1',106),{
+  ok:true,reviewer:{reviewer:true},evaluation:{}}
+ );
+});
+
+function fakeRunnerDb({complete=true,claimed=true,completionReject=false,failureStatus=null}={}){
+ const statements=[];
+ return {statements,async query(sql,params=[]){
+  statements.push({sql,params});
+  if(sql.includes("'lease-recovered'")||sql.includes("'attempt-limit'"))return {rows:[]};
+  if(sql.includes("'claimed'"))return {rows:claimed?[{id:7,objective:'repo.inspect',attempts:1,fencing_generation:1}]:[]};
+  // Completion response loss requires one independent, read-only postcondition query.
+  // This failure fixture never committed the completion, so the readback is empty.
+  if(sql.includes('FROM brain_tasks')&&sql.includes('last_result=$3::jsonb'))
+   return {rows:[]};
+  if(sql.includes("'observed'")){
+   if(completionReject)throw Error('simulated-completion-write-failure');
+   return {rows:complete?[{id:7}]:[]};
+  }
+  if(sql.includes("'failed'"))return {rows:failureStatus===null?[]:[{id:7,status:failureStatus}]};
+  throw Error('unexpected-sql:'+sql.slice(0,80));
+ }};
+}
+test('cloud: successful outcome and its observed receipt form one lease-fenced SQL command',async()=>{
+ const db=fakeRunnerDb();
+ const result=await runOne({db,browser:{}});
+ assert.equal(result.status,'done');
+ const commit=db.statements.find(x=>x.sql.includes("'observed'"));
+ assert.match(commit.sql,/UPDATE brain_tasks/);
+ assert.match(commit.sql,/INSERT INTO brain_events/);
+ assert.match(commit.sql,/owner_token=\$3 AND status='leased' AND lease_until>now\(\)/);
+ assert.equal(db.statements.filter(x=>x.sql.includes("'failed'")).length,0);
+});
+test('cloud: council assessments persist atomically with completion and never as a second write',async()=>{
+ const receipt={schema:'ultron.council-assessment.v1',role:'verifier'};
+ const councilCore=`export const ALLOWED=new Set(['council.review']);
+export const CAPABILITIES=[{id:'council.review'}];
+export async function executeObjective(){return {objective:'council.review',source:'local-evidence-only',assessment_receipts:[${JSON.stringify(receipt)}]};}`;
+ const url='data:text/javascript;base64,'+Buffer.from(councilCore).toString('base64');
+ const {runOne:runCouncil}=await moduleUnderTest('brain-runner.js',url);
+ const db=fakeRunnerDb();
+ db.query=async function(sql,params=[]){
+  this.statements.push({sql,params});
+  if(sql.includes("'lease-recovered'")||sql.includes("'attempt-limit'"))return {rows:[]};
+  if(sql.includes("'claimed'"))return {rows:[{id:7,task_key:'council-cycle-1',
+   objective:'council.review',attempts:1}]};
+  if(sql.includes("'observed'"))return {rows:[{id:7}]};
+  throw Error('unexpected-sql');
+ };
+ const result=await runCouncil({db,browser:{}});
+ assert.equal(result.status,'done');
+ const completion=db.statements.find(x=>x.sql.includes("'observed'"));
+ assert.match(completion.sql,/jsonb_array_elements\(\$5::jsonb\)/);
+ assert.match(completion.sql,/'council-assessment'/);
+ assert.deepEqual(JSON.parse(completion.params[4]),[receipt]);
+ assert.equal(db.statements.filter(x=>x.sql.includes("'council-assessment'")).length,1);
+});
+test('cloud: stale lease cannot produce a contradictory failure receipt',async()=>{
+ const db=fakeRunnerDb({complete:false});
+ const result=await runOne({db,browser:{}});
+ assert.equal(result.status,'lost-lease');
+ assert.equal(db.statements.filter(x=>x.sql.includes("'failed'")).length,0);
+});
+test('cloud: completion persistence rejection remains uncertain, not an objective failure',async()=>{
+ const db=fakeRunnerDb({completionReject:true});
+ const result=await runOne({db,browser:{}});
+ assert.deepEqual(result,{status:'completion-uncertain',task_id:7,objective:'repo.inspect'});
+ assert.equal(db.statements.filter(x=>x.sql.includes("'observed'")&&x.sql.includes("INSERT INTO brain_events")).length,1);
+ assert.equal(db.statements.filter(x=>x.sql.includes("'failed'")).length,0);
+});
+test('cloud: uncertain completion does not immediately replay an already claimed objective',async()=>{
+ const db=fakeRunnerDb({completionReject:true});
+ const query=db.query.bind(db);
+ let claims=0;
+ db.query=async(sql,params)=>{
+  if(sql.includes("'claimed'")&&++claims>1)return {rows:[]};
+  return query(sql,params);
+ };
+ const uncertain=await runOne({db,browser:{}});
+ assert.equal(uncertain.status,'completion-uncertain');
+ const next=await runOne({db,browser:{}});
+ assert.equal(next.status,'idle');
+ assert.equal(claims,2);
+ assert.equal(db.statements.filter(x=>x.sql.includes("'observed'")&&x.sql.includes("INSERT INTO brain_events")).length,1);
+ assert.equal(db.statements.filter(x=>x.sql.includes("'failed'")).length,0);
+});
+test('cloud: real objective execution failure remains lease-fenced and journaled',async()=>{
+ const throwingCore=`export const ALLOWED=new Set(['repo.inspect']);
+export const CAPABILITIES=[{id:'repo.inspect'}];
+export async function executeObjective(){throw Error('real-objective-failure');}`;
+ const failingCoreUrl='data:text/javascript;base64,'+Buffer.from(throwingCore).toString('base64');
+ const {runOne:runFailing}=await moduleUnderTest('brain-runner.js',failingCoreUrl);
+ const db=fakeRunnerDb({failureStatus:'queued'});
+ const result=await runFailing({db,browser:{}});
+ assert.equal(result.status,'failed');
+ assert.equal(result.next_status,'queued');
+ assert.match(result.reason,/real-objective-failure/);
+ assert.equal(db.statements.filter(x=>x.sql.includes("'observed'")&&x.sql.includes("INSERT INTO brain_events")).length,0);
+ const failure=db.statements.filter(x=>x.sql.includes("'failed'"));
+ assert.equal(failure.length,1);
+ assert.match(failure[0].sql,/owner_token=\$2 AND status='leased' AND lease_until>now\(\)/);
+});
+test('cloud: claim and recovery include their receipts in the same SQL call',async()=>{
+ const db=fakeRunnerDb({claimed:false});
+ const result=await runOne({db,browser:{}});
+ assert.equal(result.status,'idle');
+ for(const statement of db.statements) {
+  assert.match(statement.sql,/UPDATE brain_tasks/);
+  assert.match(statement.sql,/INSERT INTO brain_events/);
+ }
+});
+test('cloud: owner task admission is idempotent and schedules only on insertion',async()=>{
+ const statements=[];let scheduled=0,insertions=0;
+ const task={id:3,task_key:'key-six',objective:'repo.inspect',status:'queued',
+  receipt_id:11,receipt_objective:'repo.inspect'};
+ const db={async query(sql){
+  statements.push(sql);
+  if(sql.includes('INSERT INTO brain_tasks')){
+   return {rows:++insertions===1?[task]:[]};
+  }
+  if(sql.includes('WHERE t.task_key=$1'))return {rows:[task]};
+  throw Error('unexpected-sql');
+ }};
+ const scheduler={async now(){scheduled++;}};
+ const a=await queueObjective({db,scheduler},'repo.inspect','key-six');
+ const b=await queueObjective({db,scheduler},'repo.inspect','key-six');
+ assert.equal(a.created,true);
+ assert.equal(b.created,false);
+ assert.equal(scheduled,1);
+ assert.match(statements[0],/INSERT INTO brain_events/);
+});
+test('cloud: concurrent queue admissions converge on one task and receipt',async()=>{
+ let task,writes=0,scheduled=0;
+ const db={async query(sql){
+  if(sql.includes('INSERT INTO brain_tasks')){
+   writes++;
+   if(task)return {rows:[]};
+   task={id:3,task_key:'key-six',objective:'repo.inspect',status:'queued',
+    receipt_id:11,receipt_objective:'repo.inspect'};
+   return {rows:[task]};
+  }
+  return {rows:[task]};
+ }};
+ const scheduler={async now(){scheduled++;}};
+ const results=await Promise.all([
+  queueObjective({db,scheduler},'repo.inspect','key-six'),
+  queueObjective({db,scheduler},'repo.inspect','key-six')
+ ]);
+ assert.equal(writes,2);
+ assert.deepEqual(results.map(x=>x.created).sort(),[false,true]);
+ assert.deepEqual(results.map(x=>x.receipt_id),[11,11]);
+ assert.equal(scheduled,1);
+});
+test('cloud: lost queue acknowledgement is reconciled without rescheduling',async()=>{
+ let writes=0,scheduled=0;
+ const db={async query(sql){
+  if(sql.includes('INSERT INTO brain_tasks')){writes++;throw Error('lost-ack');}
+  return {rows:[{id:3,task_key:'key-six',objective:'repo.inspect',status:'queued',
+   receipt_id:11,receipt_objective:'repo.inspect'}]};
+ }};
+ const result=await queueObjective({db,scheduler:{async now(){scheduled++;}}},
+  'repo.inspect','key-six');
+ assert.equal(result.ok,true);
+ assert.equal(result.created,false);
+ assert.equal(result.receipt_id,11);
+ assert.equal(writes,1);
+ assert.equal(scheduled,0);
+});
+test('cloud: uncertain or inconsistent queue readback does not claim success',async()=>{
+ const good={id:3,task_key:'key-six',objective:'repo.inspect',status:'queued',
+  receipt_id:11,receipt_objective:'repo.inspect'};
+ for(const readback of [null,[],[{...good,receipt_id:null}],
+  [good,good],[{...good,receipt_objective:'different'}]]){
+  let scheduled=0;
+  const db={async query(sql){
+   if(sql.includes('INSERT INTO brain_tasks'))return {rows:[good]};
+   if(readback===null)throw Error('readback-unavailable');
+   return {rows:readback};
+  }};
+  const result=await queueObjective({db,scheduler:{async now(){scheduled++;}}},
+   'repo.inspect','key-six');
+  assert.equal(result.error,'reconcile-required');
+  assert.equal(result.task_key,'key-six');
+  assert.equal(scheduled,0);
+ }
+});
+test('cloud: queue key cannot be reused for a different objective',async()=>{
+ const db={async query(sql){
+  if(sql.includes('INSERT INTO brain_tasks'))return {rows:[]};
+  return {rows:[{id:3,task_key:'key-six',objective:'other',status:'queued',
+   receipt_id:11,receipt_objective:'other'}]};
+ }};
+ const result=await queueObjective({db},'repo.inspect','key-six');
+ assert.equal(result.error,'idempotency-key-conflict');
+});
+test('cloud: unsupported owner objective cannot schedule',async()=>{
+ let queries=0;
+ const r=await queueObjective({db:{query:async()=>{queries++;}},scheduler:{now:async()=>{}}},'repo.mutate','safe-key');
+ assert.equal(r.ok,false);
+ assert.equal(queries,0);
+});
+test('cloud: MCP queue routes signed requests without accepting other operations',async()=>{
+ const source=await readFile(new URL('../cloud/hatchable/mcp/ultron_queue.js',import.meta.url),'utf8');
+ const stub='data:text/javascript;base64,'+Buffer.from(
+  "export async function prepareMutation(){return {prepared:true};}"+
+  "export async function executeMutation(){return {submitted:true};}"+
+  "export async function reconcileMutation(){return {readback:true};}"
+ ).toString('base64');
+ const module=await import('data:text/javascript;base64,'+Buffer.from(
+  source.replace("'lib/mcp-signed-mutation.js'","'"+stub+"'")).toString('base64'));
+ assert.equal(module.access,'admin');
+ assert.ok(module.default.inputSchema.properties.request.required.includes('key'));
+ assert.deepEqual(await module.default.handler({request:{operation:'mcp.task.control'}},{}),
+  {ok:false,status:'held',reason:'invalid-request'});
+ assert.deepEqual(await module.default.handler(
+  {request:{operation:'mcp.queue.submit'},mode:'reconcile'},{db:{}}),{readback:true});
+ assert.deepEqual(await module.default.handler(
+  {request:{operation:'mcp.queue.submit'},mode:'invalid'},{}),
+  {ok:false,status:'held',reason:'invalid-mode'});
+});
+test('cloud: queue reconciliation is read-only and missing remains uncertain',async()=>{
+ let writes=0,reads=0;
+ const db={async query(sql){
+  if(/\b(?:INSERT|UPDATE|DELETE)\b/i.test(sql))writes++;
+  reads++;
+  return {rows:[]};
+ }};
+ const result=await readQueuedObjective({db},'repo.inspect','key-six');
+ assert.deepEqual(result,{ok:false,error:'reconcile-required',task_key:'key-six'});
+ assert.equal(reads,1);
+ assert.equal(writes,0);
+});
+test('cloud: MCP capability discovery reflects bounded queue objectives without claiming access',async()=>{
+ const source=await readFile(new URL('../cloud/hatchable/mcp/ultron_capabilities.js',import.meta.url),'utf8');
+ const registrySource=await readFile(new URL('../cloud/hatchable/lib/mcp-capability-registry.js',import.meta.url),'utf8');
+ const registryUrl='data:text/javascript;base64,'+Buffer.from(registrySource).toString('base64');
+ const transformed=source.replace("'lib/brain-core.js'","'"+coreUrl+"'")
+  .replace("'lib/mcp-capability-registry.js'","'"+registryUrl+"'");
+ const module=await import('data:text/javascript;base64,'+Buffer.from(transformed).toString('base64'));
+ assert.equal(module.access,'admin');
+ const result=await module.default.handler();
+ assert.deepEqual(result.objectives.map(item=>item.id),['repo.inspect']);
+ assert.equal(result.queue.keyRequired,true);
+ assert.equal(result.queue.reconciliationMode,'reconcile');
+ assert.equal(result.queue.admissionChecksStop,true);
+ assert.equal(result.externalWrites.universalGatewayAvailable,false);
+ assert.equal(result.providerConnectivityVerified,false);
+ const note=result.operations.find(item=>item.tool==='ultron_remember');
+ assert.equal(note.keyed,true);
+ assert.equal(note.profileEnforced,true);
+ assert.ok(result.operations.some(item=>item.operation==='mahoraga.action.execute'&&item.effect==='external-write'));
+});
+test('cloud: owner task control updates task and journal atomically',async()=>{
+ const statements=[];
+ const db={query:async(sql)=>{statements.push(sql);return {rows:[{id:4,status:'canceled'}]};}};
+ const r=await controlTask({db},'cancel',4);
+ assert.equal(r.ok,true);
+ assert.match(statements[0],/UPDATE brain_tasks/);
+ assert.match(statements[0],/INSERT INTO brain_events/);
+});
+test('cloud: private note contents are excluded from the audit receipt',async()=>{
+ let sql='';
+ const db={query:async(q)=>{sql=q;return {rows:[{id:9,kind:'goal',body:'test-private-note'}]};}};
+ const r=await saveNote({db},'goal','test-private-note');
+ assert.equal(r.ok,true);
+ assert.match(sql,/INSERT INTO brain_notes/);
+ assert.match(sql,/INSERT INTO brain_events/);
+ assert.match(sql,/jsonb_build_object\('note_id',id,'kind',kind\)/);
+ assert.doesNotMatch(sql,/test-private-note/);
+});
+
+test('cloud: an expired worker may not requeue a still-owned lease after failure',async()=>{
+ const db=fakeRunnerDb({complete:true});
+ await runOne({db,browser:{}});
+ const updated=await readFile(new URL('../cloud/hatchable/lib/brain-runner.js',import.meta.url),'utf8');
+ const failure=updated.slice(updated.indexOf('const failed=await db.query'));
+ assert.match(failure,/owner_token=\$2 AND status='leased' AND lease_until>now\(\)/);
+});
+
+test('cloud: short hourly tick dispatches slow objective work instead of running it inline',async()=>{
+ const tick=await readFile(new URL('../cloud/hatchable/api/brain/tick.js',import.meta.url),'utf8');
+ assert.match(tick,/scheduler\.now\('\/api\/brain\/run'/);
+ assert.doesNotMatch(tick,/runOne\(/);
+ assert.doesNotMatch(tick,/import.*browser.*from 'hatchable'/);
+ assert.match(tick,/processed:0/);
+});
+
+let endpointImportSequence=0;
+async function endpointUnderTest(name){
+ const source=await readFile(new URL('../cloud/hatchable/api/brain/'+name+'.js',import.meta.url),'utf8');
+ // Keep test fixture modules independent: Node caches identical data URLs.
+ const dependency=code=>'data:text/javascript;base64,'+Buffer.from(code).toString('base64')+'#'+(++endpointImportSequence);
+ const platform=dependency('export const db=globalThis.__cloudEndpoint.db; export const browser={}; export const scheduler=globalThis.__cloudEndpoint.scheduler; export const config={}; export const events={publish:async()=>({id:1})};');
+ const runner=dependency('export const runOne=(...args)=>globalThis.__cloudEndpoint.runOne(...args);');
+ const mahoraga=dependency('export const resumePendingMahoragaActions=(...args)=>globalThis.__cloudEndpoint.resumePendingMahoragaActions(...args);');
+ const profile=dependency('export const readOwnerProfile=async()=>globalThis.__cloudEndpoint.readOwnerProfile?.()??{limits:{maxSteps:4}};');
+ const recovery=dependency('export const recoverMissedHours=async()=>({recoveredCount:0,windowHours:6});');
+ const slots=dependency('export const classifySlot=()=>({pickupLagSeconds:0,sloBreach:false});export const recordSlot=async()=>({created:true});');
+ const transformed=source.replace("from 'hatchable'","from '"+platform+"'")
+  .replace("from 'lib/brain-runner.js'","from '"+runner+"'")
+  .replace("from 'lib/mahoraga-actions.js'","from '"+mahoraga+"'")
+  .replace("from 'lib/owner-autonomy-control.js'","from '"+profile+"'")
+  .replace("from 'lib/scheduler-recovery.js'","from '"+recovery+"'")
+  .replace("from 'lib/slot-ledger.js'","from '"+slots+"'")
+  .replace("from 'lib/owner-live-events.js'","from '"+liveUrl+"'");
+ return (await import(dependency(transformed))).default;
+}
+
+test('cloud: hourly dispatch recovers expired leases and a full worker batch schedules at most one continuation',async()=>{
+ const sql=[];const scheduled=[];let runs=0;
+ globalThis.__cloudEndpoint={
+  db:{async query(statement){sql.push(statement);return {rows:[{n:statement.includes('hf_github_receipts')?0:1}]};}},
+  scheduler:{async now(path,payload){scheduled.push({path,payload});}},
+  async runOne(){runs++;return {status:'done'};},
+  async resumePendingMahoragaActions(){return {scanned:1,observed:0,pending:1,outcomes:[{state:'prepared',ok:false}]};}
+ };
+ try{
+  const tick=await endpointUnderTest('tick');
+  const run=await endpointUnderTest('run');
+  const res={json:value=>value};
+  const hourly=await tick({},res);
+  assert.equal(hourly.continuation_scheduled,true);
+  assert.equal(hourly.mahoraga_pending,1);
+  assert.match(sql[1],/status='leased' AND lease_until < now\(\)/);
+  assert.match(sql[2],/mahoraga_actions/);
+  assert.equal(runs,0,'hourly tick must leave objective execution to the worker');
+
+  const first=await run({body:{via:'hourly-backlog'}},res);
+  assert.equal(first.results.length,4);
+  assert.equal(first.mahoraga.scanned,1);
+  assert.equal(first.continuation_scheduled,true);
+  assert.equal(scheduled.length,2);
+  assert.deepEqual(scheduled[1],{path:'/api/brain/run',payload:{via:'bounded-continuation'}});
+
+  const queriesBefore=sql.length;
+  const second=await run({body:{via:'bounded-continuation'}},res);
+  assert.equal(second.results.length,4);
+  assert.equal(second.continuation_scheduled,false);
+  assert.equal(second.mahoraga.scanned,0);
+  assert.equal(sql.length,queriesBefore);
+  assert.equal(scheduled.length,2);
+ }finally{delete globalThis.__cloudEndpoint;}
+});
+
+function fakeGithubRetryDb(){
+ // A deterministic SQL-driver fixture: models only the status, lease and
+ // backoff predicates that the runner must enforce, not a real Postgres server.
+ const state={status:'queued',attempts:0,maxAttempts:3,now:0,leaseUntil:0,token:null};
+ const events=[],statements=[];
+ const db={state,events,statements,advance(ms){state.now+=ms;},
+  async query(sql,params=[]){
+   statements.push({sql,params});
+   if(sql.includes("'lease-recovered'")||sql.includes("'attempt-limit'"))return {rows:[]};
+   if(sql.includes("'claimed'")){
+    assert.match(sql,/attempts < max_attempts/);
+    assert.match(sql,/lease_until IS NULL OR lease_until <= now\(\)/);
+    if(state.status!=='queued'||state.attempts>=state.maxAttempts||
+       state.leaseUntil>state.now)return {rows:[]};
+    state.status='leased';state.attempts++;state.token=params[0];
+    state.leaseUntil=state.now+3*60*1000;events.push('claimed');
+    return {rows:[{id:37,objective:'repo.inspect',attempts:state.attempts}]};
+   }
+   if(sql.includes("'failed'")){
+    assert.match(sql,/owner_token=\$2 AND status='leased' AND lease_until>now\(\)/);
+    assert.match(sql,/interval '15 minutes'/);
+    if(state.status!=='leased'||state.token!==params[1]||
+       state.leaseUntil<=state.now)return {rows:[]};
+    state.status='queued';state.token=null;state.leaseUntil=state.now+15*60*1000;
+    events.push('failed');return {rows:[{id:37,status:'queued'}]};
+   }
+   if(sql.includes("'observed'")){
+    assert.match(sql,/owner_token=\$3 AND status='leased' AND lease_until>now\(\)/);
+    if(state.status!=='leased'||state.token!==params[2]||
+       state.leaseUntil<=state.now)return {rows:[]};
+    state.status='done';state.token=null;state.leaseUntil=0;
+    events.push('observed');return {rows:[{id:37}]};
+   }
+   throw Error('unexpected-sql:'+sql.slice(0,80));
+  }};
+ return db;
+}
+
+async function realGithubRunner(){
+ const evidenceSource=await readFile(new URL('../cloud/hatchable/lib/council-evidence.js',import.meta.url),'utf8');
+ const evidence='data:text/javascript;base64,'+Buffer.from(evidenceSource).toString('base64');
+ const acceptanceSource=await readFile(new URL('../cloud/hatchable/lib/acceptance-evidence.js',
+  import.meta.url),'utf8');
+ const acceptance='data:text/javascript;base64,'+
+  Buffer.from(acceptanceSource).toString('base64');
+ const heldout='data:text/javascript;base64,'+Buffer.from(
+  'export async function verifyPersistedHeldOutEvidence(){return {evaluation:false}};'
+ ).toString('base64');
+ const room='data:text/javascript;base64,'+Buffer.from(
+  'export async function buildCouncilRoomResult(){return {objective:"council.room",members:[]}};'
+ ).toString('base64');
+ const research='data:text/javascript;base64,'+Buffer.from(
+  'export async function collectResearchIntake(){return {objective:"research.intake"}};'
+ ).toString('base64');
+ const githubRead='data:text/javascript;base64,'+Buffer.from(await readFile(
+  new URL('../cloud/hatchable/lib/github-public-read.js',import.meta.url),'utf8'
+ )).toString('base64');
+ const source=(await readFile(new URL('../cloud/hatchable/lib/brain-core.js',import.meta.url),'utf8'))
+  .replace("from 'lib/research-intake.js'","from '"+research+"'")
+  .replace("from 'lib/council-evidence.js'","from '"+evidence+"'")
+  .replace("from 'lib/acceptance-evidence.js'","from '"+acceptance+"'")
+  .replace("from 'lib/heldout-evidence.js'","from '"+heldout+"'")
+  .replace("from 'lib/council-room-core.js'","from '"+room+"'")
+  .replace("from 'lib/github-public-read.js'","from '"+githubRead+"'");
+ const core='data:text/javascript;base64,'+Buffer.from(source).toString('base64');
+ return moduleUnderTest('brain-runner.js',core);
+}
+
+test('cloud: GitHub 403 is a lease-fenced failure with bounded retry and later success',async()=>{
+ const {runOne:runGithub}=await realGithubRunner();
+ const db=fakeGithubRetryDb();
+ const originalFetch=globalThis.fetch;
+ let calls=0;
+ globalThis.fetch=async(url,options)=>{
+  calls++;
+  assert.match(String(url),/\/git\/ref\/heads\/main$/);
+  assert.equal(options?.signal?.aborted,false);
+  if(calls<=2)return {ok:false,status:403};
+  return {ok:true,json:async()=>({object:{sha:'a'.repeat(40)}})};
+ };
+ try{
+  const failed=await runGithub({db,browser:{}});
+  assert.equal(failed.status,'failed');
+  assert.equal(failed.reason,'github-status-403');
+  assert.equal(failed.next_status,'queued');
+  assert.equal(db.state.attempts,1);
+  assert.deepEqual(db.events,['claimed','failed']);
+  assert.equal(db.statements.filter(x=>x.sql.includes("'observed'")&&x.sql.includes("INSERT INTO brain_events")).length,0);
+  db.advance(15*60*1000-1);
+  const early=await runGithub({db,browser:{}});
+  assert.equal(early.status,'idle','must not re-claim during 15-minute backoff');
+  assert.equal(calls,2,'must not repeat the failed external read early');
+  db.advance(1);
+  const recovered=await runGithub({db,browser:{}});
+  assert.equal(recovered.status,'done');
+  assert.equal(recovered.summary.sha,'a'.repeat(40));
+  assert.equal(db.state.attempts,2);
+  assert.equal(calls,3);
+  assert.deepEqual(db.events,['claimed','failed','claimed','observed']);
+ }finally{globalThis.fetch=originalFetch;}
+});
+
+test('cloud: GitHub 403 after lease expiry cannot forge a failed or observed receipt',async()=>{
+ const {runOne:runGithub}=await realGithubRunner();
+ const db=fakeGithubRetryDb();
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async()=>{
+  db.advance(3*60*1000+1);
+  return {ok:false,status:403};
+ };
+ try{
+  const result=await runGithub({db,browser:{}});
+  assert.equal(result.status,'lost-lease');
+  assert.equal(db.state.attempts,1);
+  assert.deepEqual(db.events,['claimed']);
+  assert.equal(db.statements.filter(x=>x.sql.includes("'observed'")&&x.sql.includes("INSERT INTO brain_events")).length,0);
+  assert.equal(db.statements.filter(x=>x.sql.includes("'failed'")).length,1,
+   'the fenced failure statement may execute but cannot insert a receipt');
+ }finally{globalThis.fetch=originalFetch;}
+});
+
+test('cloud: hourly tick schedules recovery when only an external canary is pending',async()=>{
+ const sql=[],scheduled=[];
+ globalThis.__cloudEndpoint={
+  db:{async query(statement){
+    sql.push(statement);
+    if(statement.includes('FROM mahoraga_actions'))return {rows:[{n:1}]};
+    if(statement.includes('count(*)'))return {rows:[{n:0}]};
+    return {rows:[]};
+  }},
+  scheduler:{async now(path,payload){scheduled.push({path,payload});}},
+  async runOne(){throw Error('tick must not run worker inline');}
+ };
+ try{
+  const tick=await endpointUnderTest('tick');
+  const out=await tick({}, {json:x=>x});
+  assert.equal(out.pending,0);
+  assert.equal(out.mahoraga_pending,1);
+  assert.equal(out.continuation_scheduled,true);
+  assert.deepEqual(scheduled,[{path:'/api/brain/run',payload:{via:'hourly-backlog'}}]);
+  assert.equal(sql.filter(x=>x.includes('FROM mahoraga_actions')).length,1);
+ }finally{delete globalThis.__cloudEndpoint;}
+});
+
+
+test('cloud: owner maxSteps caps actual scheduler work from 1 to 8 without unbounded loops',async()=>{
+ const original=globalThis.__cloudEndpoint;
+ let count=0;const db={async query(){return {rows:[{n:0}]}}};
+ globalThis.__cloudEndpoint={
+  db,scheduler:{async now(){throw Error('unexpected continuation')}},
+  async readOwnerProfile(){return {limits:{maxSteps:1}}},
+  async runOne(){count++;return {status:'done'};},
+  async resumePendingMahoragaActions(){return {scanned:0,observed:0,pending:0,outcomes:[]}}
+ };
+ try{
+  const run=await endpointUnderTest('run');
+  const res={json:value=>value};
+  const small=await run({body:{via:'bounded-continuation'}},res);
+  assert.equal(small.results.length,1);
+  assert.equal(count,1);
+  globalThis.__cloudEndpoint.readOwnerProfile=async()=>({limits:{maxSteps:256}});
+  const large=await run({body:{via:'bounded-continuation'}},res);
+  assert.equal(large.results.length,8);
+  assert.equal(count,9,'untrusted large budgets cannot exceed an eight-task invocation cap');
+ }finally{globalThis.__cloudEndpoint=original;}
+});

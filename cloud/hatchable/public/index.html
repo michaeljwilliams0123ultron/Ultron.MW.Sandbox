@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script src="/front-door-route.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<title>Ultron.MW — Cloud Brain</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:radial-gradient(ellipse at 75% 0,#17365e,transparent 47%),#080e1b;color:#e9effd;min-height:100vh}
+.shell{max-width:940px;margin:auto;padding:clamp(22px,5vw,55px) 18px}
+.eyebrow{font-weight:750;letter-spacing:.17em;color:#96b7ff;font-size:12px}h1{font-size:clamp(32px,6vw,53px);margin:10px 0;line-height:1.1}
+.intro,.muted{color:#bdc9dd;line-height:1.6}a{color:#b6d8ff}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:15px;margin-top:22px}
+.card{padding:21px;border:1px solid #314665;border-radius:15px;background:#111e33}
+h2{font-size:20px;margin:0 0 10px}h3{font-size:15px;margin:19px 0 8px}
+label{display:block;font-size:13px;color:#ccdafa;margin:8px 0 5px}
+input,select,textarea{background:#192b45;border:1px solid #466283;border-radius:9px;color:#f1f5ff;padding:10px;width:100%;font:inherit}
+input:focus,select:focus,textarea:focus{outline:2px solid #94c6ff}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+button{border:0;border-radius:9px;padding:11px 15px;font-weight:760;background:#82a7ff;color:#081628;cursor:pointer;margin-top:12px}
+button:disabled{opacity:.4;cursor:not-allowed}
+.button-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.small{font-size:12px;color:#aabdd9}.status{padding:12px;border:1px solid #4e6686;border-radius:10px;background:#17283e;margin:16px 0;font-size:13px}
+.status.error{border-color:#8e4e54;color:#ffd8d8}
+.ops{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
+.ops label{display:flex;gap:8px;align-items:center;background:#1a2b43;padding:8px;border-radius:8px;margin:0;overflow-wrap:anywhere}
+.ops input{width:16px;min-width:16px;padding:0}
+.chip{display:inline-block;padding:4px 9px;border-radius:99px;border:1px solid #435e7d;font-size:11px;color:#b9d5ff}
+@media(max-width:730px){.grid,.metrics{grid-template-columns:1fr}.ops{grid-template-columns:1fr}}
+.unified-nav{max-width:940px;margin:auto;padding:16px 18px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.unified-nav a{display:inline-flex;padding:9px 14px;border-radius:9px;text-decoration:none;border:1px solid #466283;color:#dbedff;background:#11263f;font-weight:700;font-size:13px}
+.unified-nav a[aria-current="page"]{background:#274c70;border-color:#8ac3fd}
+.task-list{list-style:none;margin:13px 0 0;padding:0;display:grid;gap:9px}
+.task-list li{border:1px solid #304866;background:#101f33;padding:10px;border-radius:9px;font-size:12px;overflow-wrap:anywhere}
+.task-list strong{display:block;color:#dbe9fe}
+</style>
+<link rel="stylesheet" href="./connectivity.css">
+<link rel="stylesheet" href="./hf-lab.css">
+</head>
+<body>
+<nav class="unified-nav" aria-label="Primary Ultron workspace"><a href="/council-room.html">Council room · start here</a><a href="/workspace.html">Workspace · Brain / Learning / Systems</a><a href="/" aria-current="page">Cloud controls</a><a href="/repair-operations.html">Repair operations</a><a href="/passkey-owner.html">Owner passkeys</a><a href="/github-pr-comment-canary.html">GitHub App canary</a><a href="/local-workbooks.html">Local workbooks</a></nav>
+<main class="shell">
+<section class="connectivity" aria-labelledby="connection-heading">
+ <div class="connectivity-titlebar">
+  <div>
+   <div class="connectivity-overline">ULTRON.MW / CONNECTIVITY</div>
+   <h2 id="connection-heading">Mission Control</h2>
+   <p class="small">One view of the hosted brain, GitHub source, CI, Council wiring and durable objectives. Every result identifies what was actually observed.</p>
+  </div>
+  <div class="connectivity-controls">
+   <button type="button" id="connection-refresh">Refresh connections</button>
+   <span class="small" id="owner-session-status" role="status" aria-live="polite">Verifying owner session…</span>
+   <a id="owner-session-link" href="https://hatchable.com/console/projects/ultron-mw-cloud" target="_blank" rel="noopener noreferrer" hidden>Owner sign-in</a>
+  </div>
+ </div>
+ <p class="connection-stamp" id="live-indicator" aria-live="polite">Live event transport initializing…</p>
+<p class="connection-stamp" id="connection-stamp" role="status" aria-live="polite">Connections have not been verified.</p>
+ <div class="connection-grid" aria-label="Live system status">
+  <article class="connection-tile" id="connection-runtime" data-state="warning"><div class="connection-label">Hatchable / PostgreSQL</div><div class="connection-value">Unverified</div><div class="connection-detail">Checking runtime state…</div></article>
+  <article class="connection-tile" id="connection-github" data-state="warning"><div class="connection-label">GitHub main</div><div class="connection-value">Unverified</div><div class="connection-detail">Checking source revision…</div></article>
+  <article class="connection-tile" id="connection-ci" data-state="warning"><div class="connection-label">GitHub Actions</div><div class="connection-value">Unverified</div><div class="connection-detail">Checking current-main workflow…</div></article>
+  <article class="connection-tile" id="connection-council" data-state="warning"><div class="connection-label">Council wiring / GitHub Apps</div><div class="connection-value">Unverified</div><div class="connection-detail">Checking owner-only wiring evidence…</div></article>
+  <article class="connection-tile" id="connection-queue" data-state="warning"><div class="connection-label">Durable objectives</div><div class="connection-value">Unverified</div><div class="connection-detail">Checking task state…</div></article>
+ </div>
+ <div class="connection-lower">
+  <section class="connection-subpanel" aria-labelledby="pr-summary-title">
+   <div class="connection-subpanel-head"><h3 id="pr-summary-title">Recent open PRs</h3><a href="https://github.com/michaeljwilliams0123/Ultron.MW/pulls" target="_blank" rel="noopener noreferrer">Open GitHub PRs</a></div>
+   <ul class="connection-rows" id="connection-prs" aria-label="Observed pull requests"><li>Waiting for owner-only readback…</li></ul>
+  </section>
+  <section class="connection-subpanel" aria-labelledby="tasks-summary-title">
+   <div class="connection-subpanel-head"><h3 id="tasks-summary-title">Latest hosted objectives</h3><a href="#ledger-panel">Task ledger</a></div>
+   <ul class="connection-rows" id="connection-recent" aria-label="Recent durable tasks"><li>Waiting for owner-only readback…</li></ul>
+  </section>
+ </div>
+ <p class="connection-footnote">Snapshot uses read-only public GitHub APIs and owner-protected PostgreSQL readback. No browser tokens or paid model calls. A missing observation never counts as a successful deployment or authorization.</p>
+</section>
+
+<section class="hf-lab" id="hf-model-lab" aria-labelledby="hf-lab-heading">
+ <div class="hf-head">
+  <div>
+   <div class="hf-kicker">HUGGING FACE / GITHUB ACTIONS / HATCHABLE</div>
+   <h2 id="hf-lab-heading">Model Lab</h2>
+   <p class="small">See real model-evaluation jobs and independently sourced code-release evidence without starting paid inference or making GitHub writes.</p>
+  </div>
+  <button type="button" id="hf-lab-refresh">Check model workflows</button>
+ </div>
+ <p id="hf-lab-status" class="hf-meta" role="status" aria-live="polite">Model workflow evidence not yet read.</p>
+ <div id="hf-lab-workflows" class="hf-runs" aria-label="Observed Hugging Face workflow runs">
+  <p>Protected workflow evidence requires an authenticated owner session; realtime connectivity is separate.</p>
+ </div>
+ <div class="hf-evidence">
+  <div class="hf-evidence-head">
+   <h3>Verified historical repair benchmark</h3>
+   <a href="https://github.com/michaeljwilliams0123/Ultron.MW/blob/main/docs/hf-heldout-repair-evaluation.md" target="_blank" rel="noopener noreferrer">Evidence and scoring</a>
+  </div>
+  <div id="hf-lab-scores" class="hf-score-row" aria-label="Historical 16-case model scores"></div>
+  <p class="hf-restriction" id="hf-lab-evidence">Historical evidence is not a live model promotion or autonomous release.</p>
+ </div>
+ <div class="hf-links">
+  <a href="https://github.com/michaeljwilliams0123/Ultron.MW/issues/245" target="_blank" rel="noopener noreferrer">3-file release acceptance · #245</a>
+  <a href="https://github.com/michaeljwilliams0123/Ultron.MW/issues/248" target="_blank" rel="noopener noreferrer">Free ZeroGPU eligibility · #248</a>
+ </div>
+ <p class="connection-footnote">20-minute shared cache limits anonymous GitHub API pressure. Scores are pinned historical receipts; a green workflow is not production approval. Paid spend ceiling remains $0.</p>
+</section>
+
+<section class="hf-lab" id="c06-live-panel" aria-labelledby="c06-live-heading">
+ <div class="hf-head">
+  <div>
+   <div class="hf-kicker">MODEL-ORIGIN ACCEPTANCE / OWNER-ONLY</div>
+   <h2 id="c06-live-heading">C06 live runtime receipt</h2>
+   <p class="small">Independently verify the original model-generated GitHub run and archive, apply the protected model-effect classifier, and persist one auditable Hatchable receipt. No paid inference, automatic merge, or deployment is initiated.</p>
+  </div>
+  <button type="button" id="c06-live-start">Verify &amp; record C06 receipt</button>
+ </div>
+ <p class="hf-meta" id="c06-live-status" role="status" aria-live="polite">Checking owner-only receipt history…</p>
+ <ul id="c06-live-history" class="connection-rows" aria-label="Source-pinned runtime canary receipts"></ul>
+ <p class="connection-footnote">Requires an active owner session and a matching, unpaused runtime-stop version. Reusing a submission key does not repeat the effect. A receipt means evaluation succeeded; production release still requires authenticated owner authorization and trusted automated security evidence, never another human signer.</p>
+</section>
+
+<section class="card" id="cloud-gitlab-write" aria-labelledby="cloud-gitlab-heading" style="margin:22px 0">
+ <div class="eyebrow">CLOUD EXECUTION / OWNER ONLY</div>
+ <h2 id="cloud-gitlab-heading">GitLab branch canary</h2>
+ <p class="small">Hatchable executes the existing signed GitLab branch-write operation directly. No local Codex MCP login, second human signer, or private signing key on this server. Requires one owner-signed grant.</p>
+ <div class="grid">
+  <div>
+   <label for="cloud-gitlab-key">Idempotency key (one branch)</label>
+   <input id="cloud-gitlab-key" autocomplete="off" value="release-v60-canary-20261108" maxlength="48">
+  </div>
+  <div>
+   <label for="cloud-gitlab-sha">Exact approved GitHub / GitLab commit SHA</label>
+   <input id="cloud-gitlab-sha" autocomplete="off" value="8c03bc3a56b41be88f65caa18568d6876bbe974c" maxlength="40">
+  </div>
+ </div>
+ <div class="button-line">
+  <button type="button" id="cloud-gitlab-prepare">Prepare signed operation</button>
+  <button type="button" id="cloud-gitlab-copy" disabled>Copy signable request</button>
+ </div>
+ <label for="cloud-gitlab-grant">Signable request (no private keys)</label>
+ <textarea id="cloud-gitlab-grant" readonly rows="4" spellcheck="false" placeholder="Prepare first; this is a bounded request for the owner to sign."></textarea>
+ <p class="small">Sign the copied JSON on a trusted owner-controlled device with `node scripts/owner-grant.mjs sign PRIVATE_JWK REQUEST_JSON`. The key stays on that device; execution occurs in Hatchable.</p>
+ <label for="cloud-gitlab-envelope">Owner-signed grant envelope (payload and signature only)</label>
+ <textarea id="cloud-gitlab-envelope" rows="3" spellcheck="false" autocomplete="off" placeholder="Paste the short-lived signed envelope. Never paste your private key."></textarea>
+ <div class="button-line">
+  <button type="button" id="cloud-gitlab-submit" disabled>Submit once to GitLab</button>
+  <button type="button" id="cloud-gitlab-reconcile" disabled>Read back existing grant</button>
+ </div>
+ <p class="status" id="cloud-gitlab-status" role="status" aria-live="polite">No write submitted. Owner session and current profile must be verified before prepare.</p>
+ <p class="small">After any uncertain POST, use readback only—do not submit again. The branch creation is constrained to private GitLab project 87884831, exact SHA, zero-runner CI, owner profile and stop version. Paid spend: $0.</p>
+</section>
+
+<div class="eyebrow">ULTRON.MW / ONE OWNER CONTROL SURFACE</div>
+<h1>Persistent cloud brain</h1>
+<p class="intro">Review and customize Ultron's autonomy preferences without granting new credentials or bypassing runtime authorization. Profile selection never grants execution authority; Release requires separate verified CI, owner authorization, GitHub eligibility and rollback gates.</p>
+<div class="status" id="status" role="status" aria-live="polite">Checking authenticated owner controls…</div>
+<section class="grid">
+<div class="card">
+<h2>Autonomy profiles</h2>
+<p class="small">Preferences are stored only after the protected owner API confirms your session. Changes use version matching and a readback receipt.</p>
+<form id="form">
+<label for="preset">Preferred autonomy mode</label>
+<select id="preset" disabled>
+<option value="observe">Observe — research and evidence</option>
+<option value="build" selected>Build — scoped branches, PRs and sandbox capabilities</option>
+<option value="release">Release — proposal only, execution gated</option>
+</select>
+<div class="metrics">
+<div><label for="maxFiles">Max files</label><input id="maxFiles" type="number" min="1" max="64" value="12" disabled></div>
+<div><label for="maxConcurrent">Concurrent objectives</label><input id="maxConcurrent" type="number" min="1" max="8" value="4" disabled></div>
+<div><label for="maxSteps">Max steps</label><input id="maxSteps" type="number" min="1" max="256" value="32" disabled></div>
+</div>
+<label for="operations">Allowed candidate operation families</label>
+<div id="operations" class="ops" aria-label="Candidate operations"></div>
+<label for="reason">Reason for change</label>
+<input id="reason" maxlength="200" value="Owner autonomy preference update" disabled>
+<div class="button-line"><button id="save" type="submit" disabled>Save owner preferences</button><span class="small" id="revision">Version not loaded</span></div>
+</form>
+</div>
+<div class="card">
+<h2>Cloud actions</h2>
+<p class="small">Create one owner-scoped note in the cloud. Keep its key when retrying an uncertain result.</p>
+<form id="cloudForm">
+<label for="cloudKey">Action key</label><input id="cloudKey" readonly>
+<label for="cloudKind">Kind</label><select id="cloudKind"><option value="observation">Observation</option><option value="goal">Goal</option><option value="decision">Decision</option></select>
+<label for="cloudBody">Note</label><textarea id="cloudBody" maxlength="1200" rows="4" required></textarea>
+<button id="cloudSubmit" type="submit" disabled>Create cloud note</button>
+</form>
+<p class="small" id="cloudResult" role="status" aria-live="polite">Owner profile pending.</p>
+</div>
+<div class="card">
+<h2>Execution safeguards</h2>
+<p><span class="chip">Current profile is NOT a permission grant</span></p>
+<p class="muted">Actual execution requires a verified owner grant, provider capabilities, durable stop/fencing, idempotency and independent external readback. Squash merges and reversible releases additionally require exact-head CI and GitHub eligibility checks.</p>
+<h3>Current pause state</h3><p class="small" id="pause">Readback pending…</p>
+<h3>Spend ceiling</h3><p class="small">Approved incremental paid spend: <strong>$0</strong>.</p>
+<h3>Development backend</h3><p class="small"><a href="https://github.com/michaeljwilliams0123/Ultron.MW" rel="noreferrer">GitHub source and CI</a> remain separate from this owner-facing console.</p>
+<p class="small">Owner-only functions remain protected by Hatchable access controls. If authentication is unavailable, nothing can be saved. <a href="/connectors.html">View connector readiness</a> (read-only).</p>
+</div>
+<div class="card" id="ledger-panel">
+<h2>Cloud task ledger</h2>
+<p class="small">Owner-authenticated, persisted task observations. This view does not create or approve external work. Failed and uncertain statuses remain visible.</p>
+<form id="inspection-form">
+<label for="inspect-objective">Run a hosted observation</label>
+<select id="inspect-objective">
+<option value="repo.inspect">Verify GitHub main</option>
+<option value="repo.prs">Inspect open PRs</option>
+<option value="repo.ci">Inspect GitHub CI</option>
+<option value="site.render">Render production Pages</option>
+<option value="council.review">Request evidence-only Council review</option>
+</select>
+<button id="inspect-submit" type="submit">Queue cloud inspection</button>
+</form>
+<p class="small" role="status" id="inspect-status" aria-live="polite">Each request uses a durable key; uncertain submissions must reuse that key.</p>
+<button type="button" id="task-refresh">Refresh recorded tasks</button>
+<p class="small" role="status" aria-live="polite" id="task-status">Task readback not yet checked.</p>
+<ul class="task-list" id="task-list"></ul>
+</div>
+</section>
+</main>
+<script>
+(()=>{
+'use strict';
+const uri='/api/brain/autonomy';
+const modes={
+observe:{operations:['research.public','repo.inspect','plan.create','test.local','evidence.read'],
+limits:{maxFiles:4,maxFileBytes:6500,maxTotalBytes:18000,maxConcurrent:1,maxSteps:8}},
+build:{operations:['research.public','repo.inspect','plan.create','test.local','evidence.read','branch.create','branch.update','pr.open','pr.comment','verify.dispatch','capability.sandbox.propose','capability.sandbox.test','cloud.note.create'],
+limits:{maxFiles:12,maxFileBytes:24000,maxTotalBytes:96000,maxConcurrent:4,maxSteps:32}},
+release:{operations:['research.public','repo.inspect','plan.create','test.local','evidence.read','branch.create','branch.update','pr.open','pr.comment','verify.dispatch','capability.sandbox.propose','capability.sandbox.test','cloud.note.create','pr.squash.merge','deploy.reversible'],
+limits:{maxFiles:24,maxFileBytes:36000,maxTotalBytes:192000,maxConcurrent:4,maxSteps:48}}
+};
+const all=[...modes.release.operations,'owner.passkey.enroll'];
+const ids=['preset','maxFiles','maxConcurrent','maxSteps','reason'];
+const el=id=>document.getElementById(id);
+let profile=null;
+let pendingCloud=null;
+const nextCloudKey=()=> 'cloud:note:'+crypto.randomUUID();
+el('cloudKey').value=nextCloudKey();
+function message(txt,bad=false){el('status').textContent=txt;el('status').classList.toggle('error',bad)}
+function enable(on){for(const id of ids)el(id).disabled=!on;el('save').disabled=!on;
+ for(const x of document.querySelectorAll('#operations input'))x.disabled=!on;
+ el('cloudSubmit').disabled=!on||!profile?.allowedOperations.includes('cloud.note.create')||profile.paused}
+function drawOps(active){el('operations').replaceChildren();
+ for(const op of all){const label=document.createElement('label'),box=document.createElement('input'),span=document.createElement('span');
+ box.type='checkbox';box.value=op;box.checked=active.includes(op);box.disabled=!profile;
+ span.textContent=op.replaceAll('.',' · ');label.append(box,span);el('operations').appendChild(label)}
+}
+function refresh(p){profile=p;el('preset').value=p.preset;el('maxFiles').value=p.limits.maxFiles;
+ el('maxConcurrent').value=p.limits.maxConcurrent;el('maxSteps').value=p.limits.maxSteps;
+ el('revision').textContent='Version '+p.version;el('pause').textContent=p.paused?'PAUSED — no new work permitted':'Not paused (separate execution grants still required)';
+ drawOps(p.allowedOperations);enable(true);
+ message('Authenticated preferences loaded. No execution authority has been granted.')}
+el('cloudForm').addEventListener('submit',async event=>{
+ event.preventDefault();if(!profile||el('cloudSubmit').disabled)return;
+ const key=el('cloudKey').value,kind=el('cloudKind').value,body=el('cloudBody').value.trim();
+ if(!body)return;
+ if(!pendingCloud||pendingCloud.key!==key||pendingCloud.kind!==kind||pendingCloud.body!==body){
+  pendingCloud={key,kind,body,expectedProfileVersion:profile.version,
+   expectedStopVersion:profile.stopVersion};
+ }
+ enable(false);el('cloudResult').textContent='Writing and reading back the cloud receipt…';
+ try{
+  const response=await fetch('/api/brain/cloud-action',{method:'POST',credentials:'same-origin',
+   cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(pendingCloud)});
+  const result=await response.json();
+  if(!response.ok||!result.ok)throw Error(result.reason||'cloud-action-unverified');
+  el('cloudResult').textContent='Cloud note '+result.noteId+' confirmed with receipt '+result.receiptId+'.';
+  pendingCloud=null;el('cloudBody').value='';el('cloudKey').value=nextCloudKey();
+ }catch(error){el('cloudResult').textContent='Action unconfirmed: '+String(error.message||error)+
+  '. Retry with the same key and unchanged note.';}
+ enable(true);
+});
+el('preset').addEventListener('change',()=>{const p=modes[el('preset').value];drawOps(p.operations);
+ for(const key of ['maxFiles','maxConcurrent','maxSteps'])el(key).value=p.limits[key]});
+el('form').addEventListener('submit',async event=>{
+ event.preventDefault();if(!profile)return;
+ const selected=[...el('operations').querySelectorAll('input:checked')].map(x=>x.value);
+ const limits={...modes[el('preset').value].limits,
+ maxFiles:Number(el('maxFiles').value),maxConcurrent:Number(el('maxConcurrent').value),
+ maxSteps:Number(el('maxSteps').value)};
+ const data={expectedVersion:profile.version,preset:el('preset').value,
+ allowedOperations:selected,limits,reason:el('reason').value.trim()};
+ enable(false);message('Validating and saving owner preference…');
+ try{const r=await fetch(uri,{method:'POST',credentials:'same-origin',cache:'no-store',
+ headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+ const payload=await r.json();
+ if(!r.ok||!payload.ok||!payload.profile)throw Error(payload.error||'change-not-accepted');
+ refresh(payload.profile);
+ message(payload.reconciled?'Saved; readback reconciled an uncertain write.':'Saved and independently read back preference version '+payload.profile.version+'.');
+ }catch(e){message('Preference not confirmed: '+String(e.message||'unknown-error')+'. Refresh before retrying.',true);
+ enable(true)}
+});
+async function load(){
+ enable(false);
+ try{const r=await fetch(uri,{credentials:'same-origin',cache:'no-store'});
+ if(!r.ok)throw Error(r.status===401||r.status===403?'owner-authentication-required':'owner-profile-unavailable-'+r.status);
+ const payload=await r.json();if(!payload.ok||!payload.profile)throw Error('owner-profile-unavailable');
+ refresh(payload.profile);
+ }catch(e){message('Owner controls unavailable: '+String(e.message||'authentication-or-deployment-pending')+'. Sign in through the Hatchable owner session.',true);el('pause').textContent='Not independently read';}
+}
+load();
+})();
+</script>
+<script>
+(()=>{
+'use strict';
+const button=document.getElementById('task-refresh');
+const status=document.getElementById('task-status');
+const list=document.getElementById('task-list');
+async function refresh(){
+ button.disabled=true;
+ status.textContent='Reading live cloud task ledger…';
+ try{
+  const response=await fetch('/api/brain/tasks',{method:'GET',credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw Error(response.status===401||response.status===403?'owner-authentication-required':'ledger-http-'+response.status);
+  const body=await response.json();
+  if(!Array.isArray(body.tasks))throw Error('invalid-ledger-response');
+  list.replaceChildren();
+  for(const task of body.tasks.slice(0,12)){
+   const item=document.createElement('li');
+   const title=document.createElement('strong');
+   title.textContent=String(task.objective||'unknown')+' — '+String(task.status||'unknown');
+   const details=document.createElement('span');
+   const sha=task.last_result?.sha;
+   details.textContent='Task '+String(task.id)+' · attempts '+String(task.attempts??'?')+
+    (sha?' · source '+String(sha).slice(0,12):' · no source SHA observed');
+   item.append(title,details);list.append(item);
+  }
+  status.textContent=body.tasks.length+' persisted task records returned; displaying latest '+Math.min(body.tasks.length,12)+'.';
+ }catch(err){
+  list.replaceChildren();
+  status.textContent='Cloud task readback unavailable: '+String(err.message||'unknown-error')+'. No success assumed.';
+ }finally{button.disabled=false}
+}
+const inspection=document.getElementById('inspection-form');
+const select=document.getElementById('inspect-objective');
+const submit=document.getElementById('inspect-submit');
+const inspectionStatus=document.getElementById('inspect-status');
+let pending=null;
+inspection.addEventListener('submit',async event=>{
+ event.preventDefault();
+ const objective=select.value;
+ if(!['repo.inspect','repo.prs','repo.ci','site.render','council.review'].includes(objective))return;
+ if(!pending||pending.objective!==objective)
+  pending={action:'queue',objective,key:'owner-ui-inspect-'+crypto.randomUUID()};
+ submit.disabled=true;
+ inspectionStatus.textContent='Submitting '+objective+' with a persistent idempotency key…';
+ try{
+  const response=await fetch('/api/brain/tasks',{method:'POST',credentials:'same-origin',
+   cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(pending)});
+  const body=await response.json();
+  if(!response.ok||!body.ok)throw Error(body.error||'queue-unconfirmed-'+response.status);
+  inspectionStatus.textContent='Request '+objective+' accepted; check the live ledger for the terminal observation.';
+  pending=null;
+  refresh();
+  window.dispatchEvent(new Event('ultron:task-queued'));
+ }catch(err){
+  inspectionStatus.textContent='Submission unconfirmed ('+String(err.message||'unknown')+
+   '). Retry the unchanged objective to reuse the same key; do not assume an effect.';
+ }finally{submit.disabled=false}
+});
+button.addEventListener('click',refresh);
+window.addEventListener('ultron:realtime-change',refresh);
+refresh();
+})();
+</script>
+<script src="/__hatchable/events.js" defer></script>
+<script src="./connectivity.js" defer></script>
+<script src="./council-readiness.js" defer></script>
+<script src="./sign-in.js" defer></script>
+<script src="./owner-session.js" defer></script>
+<script src="./owner-live.js" defer></script>
+<script src="./hf-lab.js" defer></script>
+<script src="./c06-live.js" defer></script>
+<script src="./cloud-gitlab.js" defer></script>
+<script src="./nav-guard.js" defer></script>
+</body>
+</html>
