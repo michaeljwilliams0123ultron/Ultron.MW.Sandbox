@@ -1,8 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateRunPlan, decideMutation, reconcileMutation} from '../scripts/sandbox-live-autonomy.mjs';
+import {validateRunPlan, decideMutation, reconcileMutation, parseRunnerArgs} from '../scripts/sandbox-live-autonomy.mjs';
 
 const SHA = 'a'.repeat(40);
+
+test('runner accepts zero or one approved CLI flag, not the Node launcher', () => {
+  assert.deepEqual(parseRunnerArgs([]), {replay:false});
+  assert.deepEqual(parseRunnerArgs(['--replay']), {replay:true});
+  assert.throws(() => parseRunnerArgs(['node','script.mjs']), /unknown runner argument/i);
+  assert.throws(() => parseRunnerArgs(['--replay','--replay']), /unknown runner argument/i);
+});
 const repo = 'michaeljwilliams0123ultron/Ultron.MW.Sandbox';
 
 test('scope is fixed to the dedicated Sandbox, branch and evidence paths', () => {
