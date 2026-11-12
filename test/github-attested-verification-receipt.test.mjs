@@ -111,3 +111,39 @@ test('core verification attests only a successful same-repository receipt with m
     'the exact-source receipt must exist before GitHub signs its digest',
   );
 });
+
+const SANDBOX_REPOSITORY = 'michaeljwilliams0123ultron/Ultron.MW.Sandbox';
+const SANDBOX_REPOSITORY_ID = '1454829851';
+const sandboxEnv=()=>({
+  GITHUB_ACTIONS:'true',
+  GITHUB_REPOSITORY:SANDBOX_REPOSITORY,
+  GITHUB_REPOSITORY_ID:SANDBOX_REPOSITORY_ID,
+  GITHUB_EVENT_NAME:'pull_request',
+  GITHUB_WORKFLOW:'Ultron core verification',
+  GITHUB_WORKFLOW_REF:SANDBOX_REPOSITORY+'/.github/workflows/verify.yml@refs/pull/1/merge',
+  GITHUB_RUN_ID:'789',
+  GITHUB_RUN_ATTEMPT:'1',
+  GITHUB_JOB:'attested-receipt',
+  SOURCE_SHA:SHA
+});
+
+test('Sandbox receipt uses exact secondary-owned repository and distinct nonproduction trust domain',()=>{
+  const receipt=buildGitHubVerificationReceipt({env:sandboxEnv(),observedSha:SHA});
+  assert.equal(receipt.repository,SANDBOX_REPOSITORY);
+  assert.equal(receipt.trustDomain,'sandbox-only-nonproduction');
+  assert.equal(receipt.workflowRef,sandboxEnv().GITHUB_WORKFLOW_REF);
+  assert.equal(receipt.workflowRunUrl,'https://github.com/'+SANDBOX_REPOSITORY+'/actions/runs/789');
+  assert.equal(receipt.sourceSha,SHA);
+  assert.equal(receipt.paidSpendAuthorizedUsd,0);
+});
+
+test('Sandbox receipt never accepts alias, forged repository ID or primary workflow provenance',()=>{
+  const base=sandboxEnv();
+  for(const repositoryId of ['1424939667','0','-1','x','']) {
+    assert.throws(()=>buildGitHubVerificationReceipt({env:{...base,GITHUB_REPOSITORY_ID:repositoryId},observedSha:SHA}),/Sandbox repository ID|GITHUB_REPOSITORY_ID/);
+  }
+  assert.throws(()=>buildGitHubVerificationReceipt({env:{...base,
+    GITHUB_WORKFLOW_REF:'michaeljwilliams0123/Ultron.MW/.github/workflows/verify.yml@refs/pull/1/merge'
+  },observedSha:SHA}),/unexpected GitHub workflow ref/);
+  assert.throws(()=>buildGitHubVerificationReceipt({env:{...base,GITHUB_REPOSITORY:'other/repo'},observedSha:SHA}),/unexpected GitHub repository/);
+});
